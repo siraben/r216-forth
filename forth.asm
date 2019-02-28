@@ -22,13 +22,31 @@ start:
         mov r2, 0x1f00
         mov r10, 0
         bump r10
-        send r10, 0x1000
         send r10, 0x200F
         
         mov r1, main
         jmp next
 
 main:
+        dw lit, welcome_msg, puts
+        dw lit, inputdata_prompt, puts
+        dw lit, str_buf
+        dw lit, 14, lit, 0x1032, getline
+        
+        dw lit, 0x1020, term_send
+        dw lit, you_typed_msg, puts
+        
+        dw lit, 0x1030, term_send
+        dw lit, str_buf, puts
+        dw halt
+
+welcome_msg:
+        dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
+
+inputdata_prompt:
+        dw 0x1030, 0x200F, "> ", 0
+        dw 0
+;; Random testing stuff here.
         dw lit, 9, here, store
 main_loop:
         dw here, fetch, zjump, main_end
@@ -45,16 +63,6 @@ main_end:
 wow:
         dw lit, wow_msg, puts, halt
         
-        dw lit, inputdata_prompt, puts
-        dw lit, str_buf
-        dw lit, 14, lit, 0x1012, getline
-        
-        dw lit, 0x1020, term_send
-        dw lit, you_typed_msg, puts
-        
-        dw lit, 0x1030, term_send
-        dw lit, str_buf, puts
-        dw halt
 
         
 allot:
@@ -238,9 +246,7 @@ you_typed_msg:
 wow_msg:
         dw 0x200F, "wow", 0
 
-inputdata_prompt:
-        dw 0x1010, 0x200F, "> ", 0
-        dw 0
+
 
 puts:
         call write_string
