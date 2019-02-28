@@ -28,6 +28,14 @@ start:
         jmp next
 
 main:
+        dw lit, 0x1010, term_send
+        dw lit, 2, base, store
+        dw lit, 123, dup
+        dw u_dot
+        dw lit, '=', emit
+        dw lit, 10, base, store
+        dw u_dot, halt
+
         dw lit, welcome_msg, puts
         dw lit, inputdata_prompt, puts
         dw lit, str_buf
@@ -39,6 +47,15 @@ main:
         dw lit, 0x1030, term_send
         dw lit, str_buf, puts
         dw halt
+
+fib:
+        call docol
+        dw dup, lit, 2, less_than, zjump, fib_cont
+        dw exit
+fib_cont:
+        dw dup, one_minus, fib
+        dw swap, one_minus, one_minus, fib
+        dw plus, exit
 
 welcome_msg:
         dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
@@ -63,7 +80,14 @@ main_end:
 wow:
         dw lit, wow_msg, puts, halt
         
+base_data:
+        dw 10
 
+base:
+        push r0
+        mov r0, base_data
+        jmp next
+        
         
 allot:
         add r3, r0
@@ -98,6 +122,89 @@ minus_store:
         sub [r0], r4
         pop r0
         jmp next
+
+;; unsigned divide r4 by r5 (doesn't handle division by 0)
+;; quotient is r4, remainder is r6; clobbers r7 and r8
+udiv1616:
+	mov r6, 0
+	mov r7, 0
+	mov r8, 16
+.loop:
+	shl r7, 1
+	add r4, r4
+	adc r6, r6
+	jc .subtract_due_to_carry
+	cmp r6, r5
+	jnae .no_subtract
+.subtract_due_to_carry:
+	sub r6, r5
+	or r7, 1
+.no_subtract:
+	sub r8, 1
+	jnz .loop
+	mov r4, r7
+	ret
+
+div_mod:
+        pop r4
+        mov r5, r0
+        call udiv1616
+        mov r0, r4
+        push r6
+        jmp next
+
+nip:
+        pop r4
+        jmp next
+        
+mod:
+        call docol
+        dw div_mod, drop, exit
+
+div:
+        call docol
+        dw div_mod, nip, exit
+
+space:
+        send r10, 32
+        jmp next
+        
+u_dot_:
+        call docol
+        dw base, fetch, div_mod, qdup, zbranch, 2, u_dot_
+        dw dup, lit, 10, less_than, zbranch, 5, lit, '0'
+        dw branch, 6, lit, 10, minus, lit, 'A', plus
+        dw emit
+        dw exit
+
+uwidth:
+        call docol
+        dw base, fetch, div, qdup, zbranch, 5, uwidth, one_plus
+        dw branch, 3, lit, 1, exit
+        
+u_dot:
+        call docol
+        dw u_dot_, space, exit
+
+qdup:
+        cmp r0, 0
+        je next
+        push r0
+        jmp next
+
+true:
+        mov r0, 1
+        jmp next
+
+false:
+        mov r0, 0
+        jmp next
+
+less_than:
+        pop r4
+        cmp r4, r0
+        jl  true
+        jmp false
         
 dup:
         push r0
