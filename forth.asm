@@ -1,21 +1,26 @@
-;; r2asm("/Users/siraben/Documents/Playground/R216/forth.asm", 0xDEAD, "/Users/siraben/Documents/Playground/R216/r2asm.log")
+;;; r2asm("/Users/siraben/Documents/Playground/R216/forth.asm", 0xDEAD, "/Users/siraben/Documents/Playground/R216/r2asm.log")
 
-;; Register allocations
-;; r0: Top of stack (TOS)
-;; r1: Forth instruction pointer (IP)
-;; r2: Return stack pointer (RSP)
-;; r3: User pointer (HERE)
+;;; Register allocations
+;;; r0: Top of stack (TOS)
+;;; r1: Forth instruction pointer (IP)
+;;; r2: Return stack pointer (RSP)
+;;; r3: User pointer (HERE)
 
-;; r10: Terminal port
-;; sp: Parameter stack pointer (PSP)
+;;; r10: Terminal port
+;;; sp: Parameter stack pointer (PSP)
 
-;; r4 - r9: unassigned
-;; r11 - r13: unassigned
+;;; r4 - r9: unassigned
+;;; r11 - r13: unassigned
 
-;; word header:
-;; 0: previous entry
-;; 1: length + flags
-;; 2: null-terminated name
+;;; Hidden flag is 64
+;;; Immediate flag is 128
+;;; Length mask is 31
+        
+;;; word header:
+;;; 0: previous entry
+;;; 1: length + flags
+;;; 2-4: first three characters of name
+;;; 5 onwards: data
 
 start:
         mov sp, 0
@@ -28,25 +33,24 @@ start:
         jmp next
 
 main:
-        dw lit, 0x1010, term_send
-        dw lit, 2, base, store
-        dw lit, 123, dup
-        dw u_dot
-        dw lit, '=', emit
-        dw lit, 10, base, store
-        dw u_dot, halt
-
         dw lit, welcome_msg, puts
         dw lit, inputdata_prompt, puts
         dw lit, str_buf
         dw lit, 14, lit, 0x1032, getline
         
-        dw lit, 0x1020, term_send
-        dw lit, you_typed_msg, puts
-        
-        dw lit, 0x1030, term_send
+        dw lit, 0x1040, term_send
+        dw lit, exec_msg, puts
         dw lit, str_buf, puts
+        
+        dw lit, 0x1050, term_send
+        dw find, qdup, zjump, not_found
+        dw dup, lit, addr_msg, puts, u_dot
+
+        dw lit, 0x1060, term_send
+        dw to_cfa, execute
         dw halt
+not_found:
+        dw not_found_msg, puts, halt
 
 fib:
         call docol
@@ -57,36 +61,100 @@ fib_cont:
         dw swap, one_minus, one_minus, fib
         dw plus, exit
 
+        
 welcome_msg:
         dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
 
 inputdata_prompt:
         dw 0x1030, 0x200F, "> ", 0
         dw 0
-;; Random testing stuff here.
-        dw lit, 9, here, store
-main_loop:
-        dw here, fetch, zjump, main_end
-        dw here, fetch, lit, '0', plus, emit
-        dw lit, 1, here, minus_store
-        dw jump, main_loop
-
-main_end:
-        dw lit, you_typed_msg, puts
-        dw drop, halt
         
-        dw lit, 5, lit, 5, minus, zjump, wow
-        dw lit, you_typed_msg, puts, halt
-wow:
-        dw lit, wow_msg, puts, halt
-        
-base_data:
+var_base:
         dw 10
 
 base:
         push r0
-        mov r0, base_data
+        mov r0, var_base
         jmp next
+
+hidden:
+        ands r0, 64
+        jz false
+        jmp true
+
+bool_and:
+        pop r4
+        and r0, r4
+        jmp next
+        
+;; strcmp:
+;;         pop r4
+;;         mov r5, [r0 + 0]
+;;         cmp r5, [r4 + 0]
+;;         jnz false
+;;         mov r5, [r0 + 1]
+;;         cmp r5, [r4 + 1]
+;;         jnz false
+;;         mov r5, [r0 + 2]
+;;         cmp r5, [r4 + 2]
+;;         jnz false
+;;         jmp true
+        
+; * Writes zero-terminated strings to the terminal.
+; * r0 points to buffer to write from.
+; * r10 is terminal port address.
+; * r11 is incremented by the number of characters sent to the terminal (which
+;   doesn't help at all if the string contains colour or cursor codes).
+find:
+        push r0
+        ;; r4 points to the entry we're searching
+        ;; Get the address of the latest word and skip the link
+        ;; pointer.
+        mov r4, [var_latest]
+find_restart:
+        mov r5, r4
+        add r5, 1
+        mov r5, [r5]
+        ;; Check if hidden.
+        ands r5, 64
+        ;; Yes, skip it and continue traversing the linked list.
+        jnz find_loop
+        ;; No, check length.
+        ;; Remove flag data except for length.
+        and r5, 31
+        ;; Same length?
+        cmp r5, [input_len]
+        ;; Yes, compare strings.
+        jz find_cmp_string
+        ;; No, continue searching.
+        jmp find_loop
+
+find_cmp_string:
+        mov r7, str_buf
+        mov r6, r4
+        add r6, 2
+        ;; r6 now points at the beginning of the name field
+        mov r8, [r6 + 0]
+        cmp r8, [r7 + 0]
+        jnz find_loop
+        mov r8, [r6 + 1]
+        cmp r8, [r7 + 1]
+        jnz find_loop        
+        mov r8, [r6 + 2]
+        cmp r8, [r7 + 2]
+        jnz find_loop
+        ;; We found it!
+        add r6, 6
+        mov r0, r6
+        jmp next
+
+find_loop:
+        ;; Deference the pointer
+        mov r4, [r4]
+        ;; Hit null pointer.
+        jz false
+        jmp find_restart
+
         
         
 allot:
@@ -153,6 +221,13 @@ div_mod:
         push r6
         jmp next
 
+two_mult:
+        add r0, r0
+        jmp next
+
+two_div:
+        shr r0, 1
+        jmp next
 nip:
         pop r4
         jmp next
@@ -257,8 +332,6 @@ zbranch_succ:
         add r1, r4
         jmp next
 
-
-div:
         
 
 jump:
@@ -348,25 +421,52 @@ exit:
         add r2, 1
         jmp next
         
-you_typed_msg:
-        dw 0x200F, "You typed: ", 0
-wow_msg:
-        dw 0x200F, "wow", 0
+exec_msg:
+        dw 0x200F, "Executing ", 0
+not_found_msg:
+        dw 0x200F, "Word not found! ", 0
 
+addr_msg:
+        dw 0x200F, "Address: ", 0
 
+        
 
+before_to_cfa_link:
+        dw 0
+        
+before_execute_link:
+        dw before_to_cfa_link
+        dw 4, ">cf"
+to_cfa:
+        add r0, 2
+        jmp next
+        
+before_puts_link:
+        dw before_execute_link
+        dw 7, "exe"
+execute:
+        mov r4, [r0]
+        pop r0
+        jmp r4
+        
+before_lit_link:
+        dw before_puts_link
+        ;; TODO
 puts:
         call write_string
         pop r0
         jmp next
         
 
+before_star_link:
+        dw before_lit_link
+        dw 3, "lit"
 lit:
         push r0
         mov r0, [r1]
         add r1, 1
         jmp next
-
+         
 halt:
         hlt
 
@@ -469,47 +569,65 @@ read_character_blink:
 ; * r10 is terminal port address.
 ; * r11 is cursor position.
 read_string:
-    bump r10                  ; * Drop whatever is in the input buffer.
-    mov r5, r1
-    sub r5, 1                 ; * The size of the buffer includes the
-                              ;   terminating zero, so the character limit
-                              ;   should be one less than this size.
-    mov r6, r7                ; * Reset the default cursor colour.
-    mov r1, 0                 ; * r1 holds the number of characters read.
+        bump r10                  ; * Drop whatever is in the input buffer.
+        mov r5, r1
+        sub r5, 1                 ; * The size of the buffer includes the
+                                  ;   terminating zero, so the character limit
+                                  ;   should be one less than this size.
+        mov r6, r7                ; * Reset the default cursor colour.
+        mov r1, 0                 ; * r1 holds the number of characters read.
 .read_character:
-    call read_character_blink
-    cmp r8, 13                ; * Check for thr Return key.
-    je .got_return
-    cmp r8, 8                 ; * Check for the Backspace key.
-    je .got_backspace
-    cmp r5, r1                ; * Check if whatever else we got fits the buffer.
-    je .read_character
-    send r10, r11             ; * If it does, display it and add it to the
-    send r10, r8              ;   buffer.
-    add r11, 1
-    mov [r0+r1], r8
-    add r1, 1
-    cmp r5, r1
-    ja .read_character        ; * Change cursor colour to yellow if the buffer
-    mov r6, 0x200E            ;   is full.
-    jmp .read_character       ; * Back to waiting.
+        call read_character_blink
+        cmp r8, 13                ; * Check for thr Return key.
+        je .got_return
+        cmp r8, 8                 ; * Check for the Backspace key.
+        je .got_backspace
+        cmp r5, r1                ; * Check if whatever else we got fits the buffer.
+        je .read_character
+        send r10, r11             ; * If it does, display it and add it to the
+        send r10, r8              ;   buffer.
+        add r11, 1
+        mov [r0+r1], r8
+        add r1, 1
+        cmp r5, r1
+        ja .read_character        ; * Change cursor colour to yellow if the buffer
+        mov r6, 0x200E            ;   is full.
+        jmp .read_character       ; * Back to waiting.
 .got_backspace:
-    cmp r1, 0                 ; * Only delete a character if there is at least
-    je .read_character        ;   one to delete.
-    mov r6, r7                ; * Reset the default cursor colour.
-    send r10, r11
-    send r10, 0x20            ; * Clear the previous position of the cursor.
-    sub r11, 1
-    sub r1, 1
-    jmp .read_character       ; * Back to waiting.
+        cmp r1, 0                 ; * Only delete a character if there is at least
+        je .read_character        ;   one to delete.
+        mov r6, r7                ; * Reset the default cursor colour.
+        send r10, r11
+        send r10, 0x20            ; * Clear the previous position of the cursor.
+        sub r11, 1
+        sub r1, 1
+        jmp .read_character       ; * Back to waiting.
 .got_return:
-    send r10, r11
-    send r10, 0x20            ; * Clear the previous position of the cursor.
-    mov [r0+r1], 0            ; * Terminate string explicitly.
-    ret
+        send r10, r11
+        send r10, 0x20            ; * Clear the previous position of the cursor.
+        mov [r0+r1], 0            ; * Terminate string explicitly.
+        mov [input_len], r1
+        ret
 
+
+star_link:
+        dw before_star_link
+        dw 4, "sta"
+star:
+        call docol
+        dw lit, 42, emit, exit
+        
+        
+        ;; Latest word to be defined
+var_latest:
+        dw star_link
+        ;; Length of latest input
+input_len:
+        dw 0
+
+        ;; Global string buffer.
 str_buf:
-    dw "              "       ; * Global string buffer for use with functions
+        dw "              "   ; * Global string buffer for use with functions
                               ;   that operate on strings. 14 cells. Don't
                               ;   worry, it's thread-safe.
 
