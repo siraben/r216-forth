@@ -13,7 +13,7 @@
 ;;; Hidden flag is 64
 ;;; Immediate flag is 128
 ;;; Length mask is 31
-        
+
 ;;; word header:
 ;;; 0: previous entry
 ;;; 1: length + flags
@@ -27,16 +27,16 @@ start:
 
         mov [stack_zero], sp
         mov r2, 0x1f00
-        
+
         sub r2, 1
         mov [r2], done
 
         mov r3, here_start
-        
+
         mov r10, 0
         bump r10
         send r10, 0x200F
-        
+
         mov r1, main
         jmp next
 
@@ -55,7 +55,7 @@ main:
         dw lit, 0x1020, term_send
         dw lit, input_was_str, puts
         ;; dw lit, inputdata_prompt, puts
-        
+
         ;; dw lit, str_buffer, lit, 14, lit, 0x1032, getline
         dw lit, 0x1030, term_send
         dw lit, sample, puts
@@ -84,7 +84,7 @@ colorize_interp:
         ;; green for interpreting
         dw lit, 0x200A, term_send
         dw exit
-        
+
 ;; (IP) -> W
 ;; IP + 1 -> IP
 ;; JP (W)
@@ -92,10 +92,6 @@ next:
         mov r4, [r1]
         add r1, 1
         jmp r4
-
-;; Since we do a call to docol, we
-;; assume we have the return address
-;; on the top of the stack.
 
 ;; PUSH_IP_RS
 ;; POP IP
@@ -112,8 +108,7 @@ exit:
         mov r1, [r2]
         add r2, 1
         jmp next
-      
-        
+
 done_msg:
         dw 0x1090, 0x200F, "done ", 0
 done:
@@ -152,12 +147,12 @@ print_stack:
 print_stack_loop:
         dw dup, sz, one_minus, less_than
         dw zjump, print_stack_done
-        
+
         dw dup, fetch, u_dot, one_plus
         dw jump, print_stack_loop
 print_stack_done:
         dw drop, exit
-        
+
 
 fib:
         call docol
@@ -170,14 +165,14 @@ fib_cont:
 
 not_found:
         dw lit, not_found_msg, puts, halt
-        
+
 welcome_msg:
         dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
 
 inputdata_prompt:
         dw 0x1030, 0x200F, "> ", 0
         dw 0
-        
+
         ;; DATA
 var_base:
         dw 10
@@ -187,25 +182,25 @@ latest:
         push r0
         mov r0, var_latest
         jmp next
-        
+
         ;; CODE
 base:
         push r0
         mov r0, var_base
         jmp next
-        
+
         ;; CODE
 hidden:
         ands r0, 64
         jz false
         jmp true
-        
+
         ;; CODE
 bool_and:
         pop r4
         and r0, r4
         jmp next
-        
+
 ;; strcmp:
 ;;         pop r4
 ;;         mov r5, [r0 + 0]
@@ -218,7 +213,7 @@ bool_and:
 ;;         cmp r5, [r4 + 2]
 ;;         jnz false
 ;;         jmp true
-        
+
         ;; Find a word
         ;; ( str_addr len -- xt | 0 )
         ;; CODE
@@ -257,13 +252,13 @@ find_cmp_string:
         jne find_loop
         cmp r9, 1
         je find_succ
-        
+
         mov r8, [r6 + 1]
         cmp r8, [r7 + 1]
         jne find_loop
         cmp r9, 2
         je find_succ
-        
+
         mov r8, [r6 + 2]
         cmp r8, [r7 + 2]
         jne find_loop
@@ -279,7 +274,7 @@ find_loop:
         jz false
         jmp find_restart
 
-        
+
         ;; CODE
 allot:
         add r3, r0
@@ -341,24 +336,24 @@ minus_store:
         ;; quotient is r4, remainder is r6; clobbers r7 and r8
         ;; CODE
 udiv1616:
-	mov r6, 0
-	mov r7, 0
-	mov r8, 16
+        mov r6, 0
+        mov r7, 0
+        mov r8, 16
 .loop:
-	shl r7, 1
-	add r4, r4
-	adc r6, r6
-	jc .subtract_due_to_carry
-	cmp r6, r5
-	jnae .no_subtract
+        shl r7, 1
+        add r4, r4
+        adc r6, r6
+        jc .subtract_due_to_carry
+        cmp r6, r5
+        jnae .no_subtract
 .subtract_due_to_carry:
-	sub r6, r5
-	or r7, 1
+        sub r6, r5
+        or r7, 1
 .no_subtract:
-	sub r8, 1
-	jnz .loop
-	mov r4, r7
-	ret
+        sub r8, 1
+        jnz .loop
+        mov r4, r7
+        ret
 
 
 to_r:
@@ -371,7 +366,7 @@ from_r:
         mov r0, [r2]
         add r2, 1
         jmp next
-        
+
 div_mod:
         pop r4
         mov r5, r0
@@ -390,7 +385,7 @@ right_shift:
 nip:
         pop r4
         jmp next
-        
+
 mod:
         call docol
         dw div_mod, drop, exit
@@ -420,7 +415,7 @@ uwidth:
 ;;; Diagram of the situation:
 ;;; SWM (set write mask) takes the least 13 significant bits from the
 ;;; operand and sets the write mask to that
-        
+
 ;;; SWM  xxxnnnnnnnnnnnnn
 ;;;         \-----------/
 ;;;               |
@@ -437,11 +432,11 @@ uwidth:
 ;;; But here's the challenge: we can only write to the first 16 bits!
 ;;;
 
-;;; 
+;;;
 ;;;   [ the part SWM can write to ]
 ;;;           |
 ;;;           |             +--- [ the part we can write to ]
-;;;           |             |  
+;;;           |             |
 ;;;           |             |
 ;;;           |             |
 ;;;     /------------\/--------------\
@@ -489,7 +484,7 @@ create_:
 create_link:
         dw comma_link
         dw 6, "cre"
-create: 
+create:
         call docol
         dw word, create_, exit
 
@@ -508,7 +503,7 @@ qimmed:
         mov r0, [r0+1]
         ands r0, 128
         jnz true
-        jz false        
+        jz false
 
 hidden_link:
         dw qimmed_link
@@ -527,14 +522,14 @@ lbrac_link:
 lbrac:
         mov [var_state], 0
         jmp next
-        
+
 rbrac_link:
         dw lbrac_link
         dw 1, "]  "
 rbrac:
         mov [var_state], 1
         jmp next
-        
+
 colon_link:
         dw rbrac_link
         dw 1, ":  "
@@ -554,7 +549,7 @@ semicolon:
         ;; dw latest, fetch
         ;; dw hidden
         dw lbrac, exit
-        
+
 u_dot_link:
         dw semicolon_link
         dw 2, "u. "
@@ -582,18 +577,18 @@ less_than:
         jl  true
         jmp false
 
-equal:  
+equal:
         pop r4
         cmp r4, r0
         je  true
         jmp false
 
-not_equal:  
+not_equal:
         pop r4
         cmp r4, r0
         jne  true
         jmp false
-        
+
 dup:
         push r0
         jmp next
@@ -635,7 +630,7 @@ one_minus:
 two_minus:
         sub r0, 2
         jmp next
-        
+
 one_plus:
         add r0, 1
         jmp next
@@ -655,14 +650,14 @@ zbranch:
         pop r0
         add r1, 1
         jmp next
-        
+
 zbranch_succ:
         pop r0
         mov r4, [r1]
         add r1, r4
         jmp next
 
-        
+
 
 jump:
         mov r4, [r1]
@@ -675,7 +670,7 @@ zjump:
         pop r0
         add r1, 1
         jmp next
-        
+
 zjump_succ:
         pop r0
         mov r4, [r1]
@@ -691,7 +686,7 @@ getline:
         pop r1
         mov r7, 0x200F
         pop r0
-        
+
         ;; Save r3, r1
         push r3
         push r6
@@ -751,7 +746,7 @@ divmod:
         pop r5
         mov r6, 0
         mov r6, 16
-        
+
         jmp next
 ;; Print a character.
 ;; ( c -- )
@@ -766,7 +761,7 @@ term_send:
         send r10, r0
         pop r0
         jmp next
-  
+
 exec_msg:
         dw 0x200F, "Executing ", 0
 not_found_msg:
@@ -775,14 +770,14 @@ not_found_msg:
 addr_msg:
         dw 0x200F, "Address: ", 0
 
-        
+
 to_cfa_link:
         dw u_dot_link
         dw 4, ">cf"
 to_cfa:
         add r0, 5
         jmp next
-        
+
 execute_link:
         dw to_cfa_link
         dw 7, "exe"
@@ -798,7 +793,7 @@ puts:
         call write_string
         pop r0
         jmp next
-        
+
 
 lit_link:
         dw puts_link
@@ -962,20 +957,20 @@ foo:
         push r0
         mov r0, 42
         jmp next
-        
+
 star_link:
         dw foo_link
         dw 4, "sta"
 star:
         call docol
         dw lit, 42, emit, exit
-        
+
 
 state:
         push r0
         mov r0, var_state
         jmp next
-        
+
 var_state:
         dw 0
         ;; Latest word to be defined
@@ -992,7 +987,7 @@ str_buffer:
                               ;   that operate on strings. 14 cells. Don't
                               ;   worry, it's thread-safe.
 sample:
-        ;; dw "star star star"     
+        ;; dw "star star star"
         dw ": 3stars star star star ; 3stars halt",0
 here_start:
         ;; each row is 16 cells
@@ -1043,4 +1038,4 @@ here_start:
         dw "                "
         dw "                "
         dw "                "
-        dw "                "        
+        dw "                "
