@@ -22,21 +22,35 @@
 ;;; 2-4: first three characters of name
 ;;; 5 onwards: data
 
+
 start:
         mov sp, 0
+        push 1234
+
+        mov [stack_zero], sp
         mov r2, 0x1f00
+        
+        sub r2, 1
+        mov [r2], done
+        
         mov r10, 0
         bump r10
         send r10, 0x200F
         
         mov r1, main
         jmp next
-
+        
+stack_zero:
+        dw 0
 main:
+        dw lit, 1
+        dw lit, 2
+        dw lit, 3
+        dw lit, 4
         dw lit, welcome_msg, puts
         dw lit, inputdata_prompt, puts
-        dw lit, str_buf
-        dw lit, 14, lit, 0x1032, getline
+        
+        dw lit, str_buf, lit, 14, lit, 0x1032, getline
         
         dw lit, 0x1040, term_send
         dw lit, exec_msg, puts
@@ -44,13 +58,59 @@ main:
         
         dw lit, 0x1050, term_send
         dw find, qdup, zjump, not_found
-        dw dup, lit, addr_msg, puts, u_dot
+        dw to_cfa, dup, lit, addr_msg, puts, u_dot
 
         dw lit, 0x1060, term_send
-        dw to_cfa, execute
+        dw execute
+         
+        dw lit, 0x1070, term_send
+        dw print_stack
         dw halt
-not_found:
-        dw not_found_msg, puts, halt
+
+done_msg:
+        dw 0x1013, 0x200F, "done ", 0
+done:
+        dw lit, done_msg, puts
+        dw exit
+sz_link:
+        dw 0
+        dw "s0 "
+sz:
+        push r0
+        mov r0, [stack_zero]
+        jmp next
+
+sp_fetch_link:
+        dw sz_link
+        dw "sp@"
+sp_fetch:
+        push r0
+        mov r0, sp
+        jmp next
+
+depth_link:
+        dw sp_fetch_link
+        dw 5, "dep"
+depth:
+        call docol
+        dw sz, sp_fetch, minus, two_minus, exit
+
+print_stack_link:
+        dw depth_link
+        dw 2, ".s "
+print_stack:
+        call docol
+        dw lit, '<', emit, depth, u_dot_, lit, '>', emit, space
+        dw sp_fetch
+print_stack_loop:
+        dw dup, sz, one_minus, less_than
+        dw zjump, print_stack_done
+        
+        dw dup, fetch, u_dot, one_plus
+        dw jump, print_stack_loop
+print_stack_done:
+        dw drop, exit
+        
 
 fib:
         call docol
@@ -61,6 +121,8 @@ fib_cont:
         dw swap, one_minus, one_minus, fib
         dw plus, exit
 
+not_found:
+        dw not_found_msg, puts, halt
         
 welcome_msg:
         dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
@@ -125,10 +187,13 @@ find_restart:
         ;; Same length?
         cmp r5, [input_len]
         ;; Yes, compare strings.
-        jz find_cmp_string
+        je find_cmp_string
         ;; No, continue searching.
         jmp find_loop
 
+aaa:
+        mov r0, 123
+        jmp next
 find_cmp_string:
         mov r7, str_buf
         mov r6, r4
@@ -136,15 +201,21 @@ find_cmp_string:
         ;; r6 now points at the beginning of the name field
         mov r8, [r6 + 0]
         cmp r8, [r7 + 0]
-        jnz find_loop
+        jne find_loop
+        cmp [input_len],1
+        je find_succ
+        
         mov r8, [r6 + 1]
         cmp r8, [r7 + 1]
-        jnz find_loop        
+        jne find_loop
+        cmp [input_len],2
+        je find_succ
+        
         mov r8, [r6 + 2]
         cmp r8, [r7 + 2]
-        jnz find_loop
+        jne find_loop
         ;; We found it!
-        add r6, 6
+find_succ:
         mov r0, r6
         jmp next
 
@@ -213,6 +284,18 @@ udiv1616:
 	mov r4, r7
 	ret
 
+
+to_r:
+        sub r2, 1
+        mov [r2], r0
+        jmp next
+
+from_r:
+        push r0
+        mov r0, [r2]
+        add r2, 1
+        jmp next
+        
 div_mod:
         pop r4
         mov r5, r0
@@ -221,11 +304,11 @@ div_mod:
         push r6
         jmp next
 
-two_mult:
+left_shift:
         add r0, r0
         jmp next
 
-two_div:
+right_shift:
         shr r0, 1
         jmp next
 nip:
@@ -243,7 +326,7 @@ div:
 space:
         send r10, 32
         jmp next
-        
+
 u_dot_:
         call docol
         dw base, fetch, div_mod, qdup, zbranch, 2, u_dot_
@@ -256,7 +339,10 @@ uwidth:
         call docol
         dw base, fetch, div, qdup, zbranch, 5, uwidth, one_plus
         dw branch, 3, lit, 1, exit
-        
+
+u_dot_link:
+        dw print_stack_link
+        dw 2, "u. "
 u_dot:
         call docol
         dw u_dot_, space, exit
@@ -302,7 +388,8 @@ plus:
 
 
 minus:
-        pop r4
+        mov r4, r0
+        pop r0
         sub r0, r4
         jmp next
 
@@ -310,8 +397,16 @@ one_minus:
         sub r0, 1
         jmp next
 
+two_minus:
+        sub r0, 2
+        jmp next
+        
 one_plus:
         add r0, 1
+        jmp next
+
+two_plus:
+        add r0, 2
         jmp next
 
 branch:
@@ -430,36 +525,32 @@ addr_msg:
         dw 0x200F, "Address: ", 0
 
         
-
-before_to_cfa_link:
-        dw 0
-        
-before_execute_link:
-        dw before_to_cfa_link
+to_cfa_link:
+        dw print_stack_link
         dw 4, ">cf"
 to_cfa:
-        add r0, 2
+        add r0, 3
         jmp next
         
-before_puts_link:
-        dw before_execute_link
+execute_link:
+        dw to_cfa_link
         dw 7, "exe"
 execute:
-        mov r4, [r0]
+        mov r4, r0
         pop r0
         jmp r4
-        
-before_lit_link:
-        dw before_puts_link
-        ;; TODO
+
+puts_link:
+        dw execute_link
+        dw 4, "put"
 puts:
         call write_string
         pop r0
         jmp next
         
 
-before_star_link:
-        dw before_lit_link
+lit_link:
+        dw puts_link
         dw 3, "lit"
 lit:
         push r0
@@ -611,7 +702,7 @@ read_string:
 
 
 star_link:
-        dw before_star_link
+        dw u_dot_link
         dw 4, "sta"
 star:
         call docol
