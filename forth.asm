@@ -1,5 +1,3 @@
-;;; r2asm("/Users/siraben/Documents/Playground/R216/forth.asm", 0xDEAD, "/Users/siraben/Documents/Playground/R216/r2asm.log")
-
 ;;; Register allocations
 ;;; r0: Top of stack (TOS)
 ;;; r1: Forth instruction pointer (IP)
@@ -41,7 +39,9 @@ start:
         
         mov r1, main
         jmp next
-        
+
+demo:
+        dw "demo"
 stack_zero:
         dw 0
 main:
@@ -56,6 +56,13 @@ main:
         
         ;; dw lit, str_buffer, lit, 14, lit, 0x1032, getline
         dw lit, 0x1030, term_send
+        ;; Add debug code here if you want
+        dw lit, demo, lit, 4, create_
+        dw lit, lit, comma
+        dw lit, 65, comma
+        dw lit, emit, comma
+        dw lit, exit, comma
+        ;; These two numbers should match
         dw lit, 0x1040, term_send
 interpret_loop:
         dw word, qdup, zjump, halt
@@ -67,7 +74,36 @@ compiling_word:
 interpret_word:        
         dw to_cfa, execute
         dw jump, interpret_loop
+        
+;; (IP) -> W
+;; IP + 1 -> IP
+;; JP (W)
+next:
+        mov r4, [r1]
+        add r1, 1
+        jmp r4
 
+;; Since we do a call to docol, we
+;; assume we have the return address
+;; on the top of the stack.
+
+;; PUSH_IP_RS
+;; POP IP
+;; JP NEXT
+docol:
+        sub r2, 1
+        mov [r2], r1
+        pop r1
+        jmp next
+
+;; POP_IP_RS
+;; JP NEXT
+exit:
+        mov r1, [r2]
+        add r2, 1
+        jmp next
+      
+        
 done_msg:
         dw 0x1090, 0x200F, "done ", 0
 done:
@@ -364,6 +400,80 @@ uwidth:
         dw base, fetch, div, qdup, zbranch, 5, uwidth, one_plus
         dw branch, 3, lit, 1, exit
 
+;;; Writing instructions means that we have to access the full 29 bits
+;;; Diagram of the situation:
+;;; SWM (set write mask) takes the least 13 significant bits from the
+;;; operand and sets the write mask to that
+        
+;;; SWM  xxxnnnnnnnnnnnnn
+;;;         \-----------/
+;;;               |
+;;;               +-- [ part that gets written into the write mask ]
+
+;;; Let's say DOCOL's address is 593 in base 10, then.
+;;; The bits of the cell that corresponds to CALL DOCOL should look
+;;; like this:
+;;;     111110001000000010010100010000
+;;;     \--------/\------------------/
+;;;         |           |
+;;; [CALL opcode]       +----- [ address of DOCOL left shifted by 4 ]
+
+;;; But here's the challenge: we can only write to the first 16 bits!
+;;;
+
+;;; 
+;;;   [ the part SWM can write to ]
+;;;           |
+;;;           |             +--- [ the part we can write to ]
+;;;           |             |  
+;;;           |             |
+;;;           |             |
+;;;     /------------\/--------------\
+;;;     111110001000000010010100010000
+;;;     \------------/\--------------/
+;;;         |           |
+;;; [CALL opcode]       +----- [ address of DOCOL ]
+
+;;; If DOCOL's address is high enough we'll need to handle that, as
+;;; a couple of its significant bits might end up in the SWM region,
+;;; but to keep it simple let's make sure DOCOL is below 2^11
+
+        ;; ( addr length -- )
+        ;; Parse the next word and create a definition header for it.
+create_:
+        ;; Write the link pointer first
+        mov r4, [var_latest]
+        mov [r3], r4
+        mov [var_latest], r3
+        mov r4, docol
+        ;; Main cell content
+        shl r4, 4
+
+        swm 15904
+        ;; Write CALL DOCOL at offset 5
+        mov [r3 + 5], r4
+        ;; Reset write mask
+        swm 0
+
+        ;; Write the length
+        mov [r3 + 1], r0
+        pop r0
+        ;; Write the first three characters of the name
+        mov r5, [r0]
+        mov [r3 + 2], r5
+        mov r5, [r0 + 1]
+        mov [r3 + 3], r5
+        mov r5, [r0 + 2]
+        mov [r3 + 4], r5
+
+        pop r0
+        add r3, 6
+        jmp next
+        
+create: 
+        call docol
+        dw word, create_, exit
+        
 u_dot_link:
         dw comma_link
         dw 2, "u. "
@@ -575,36 +685,7 @@ term_send:
         send r10, r0
         pop r0
         jmp next
-
-
-;; (IP) -> W
-;; IP + 1 -> IP
-;; JP (W)
-next:
-        mov r4, [r1]
-        add r1, 1
-        jmp r4
-
-;; Since we do a call to docol, we
-;; assume we have the return address
-;; on the top of the stack.
-
-;; PUSH_IP_RS
-;; POP IP
-;; JP NEXT
-docol:
-        sub r2, 1
-        mov [r2], r1
-        pop r1
-        jmp next
-
-;; POP_IP_RS
-;; JP NEXT
-exit:
-        mov r1, [r2]
-        add r2, 1
-        jmp next
-        
+  
 exec_msg:
         dw 0x200F, "Executing ", 0
 not_found_msg:
@@ -831,7 +912,7 @@ str_buffer:
                               ;   worry, it's thread-safe.
 sample:
         ;; dw "star star star"     
-        dw "here @ u. foo here ! here @ u. .s halt",0
+        dw "star demo star halt",0
 here_start:
         ;; each row is 16 cells
         dw "                "
