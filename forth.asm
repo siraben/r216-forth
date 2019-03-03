@@ -425,9 +425,9 @@ uwidth:
 ;;; The bits of the cell that corresponds to CALL DOCOL should look
 ;;; like this:
 ;;;     111110001000000010010100010000
-;;;     \--------/\------------------/
-;;;         |           |
-;;; [CALL opcode]       +----- [ address of DOCOL left shifted by 4 ]
+;;;     \------------/\--------------/
+;;;         |             |
+;;; [CALL opcode]         +- [ address of DOCOL left shifted by 4 ]
 
 ;;; But here's the challenge: we can only write to the first 16 bits!
 ;;;
