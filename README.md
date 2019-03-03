@@ -11,6 +11,12 @@ systems out there that target a fictional computer.  Since Forth is
 extremely easy to port, it only takes a couple of primitive routines
 to get started writing the whole thing again.
 
+The default program `forth.asm` reads a string starting at address
+`sample`, prints it, and runs it while printing out colored words to
+show how that word was treated (green for interpreted, red for
+compiled).  This was very helpful for debugging words like `:` and `;`
+that mess around with the interpreter's state.
+
 ## Why?
 Fictional computers are great.  One can learn a lot from both
 implementing and playing around with them.  But when was the last time

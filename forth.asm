@@ -40,8 +40,8 @@ start:
         mov r1, main
         jmp next
 
-demo:
-        dw "demo"
+input_was_str:
+        dw "Input was:",0
 stack_zero:
         dw 0
 main:
@@ -52,28 +52,38 @@ main:
         dw lit, 4
         dw lit, welcome_msg, puts
         dw lit, 0x200F, term_send
+        dw lit, 0x1020, term_send
+        dw lit, input_was_str, puts
         ;; dw lit, inputdata_prompt, puts
         
         ;; dw lit, str_buffer, lit, 14, lit, 0x1032, getline
         dw lit, 0x1030, term_send
-        ;; Add debug code here if you want
-        dw lit, demo, lit, 4, create_
-        dw lit, lit, comma
-        dw lit, 65, comma
-        dw lit, emit, comma
-        dw lit, exit, comma
-        ;; These two numbers should match
-        dw lit, 0x1040, term_send
+        dw lit, sample, puts
+        dw lit, 0x1060, term_send
 interpret_loop:
+        dw colorize_state
         dw word, qdup, zjump, halt
+        dw two_dup, drop, puts, space
         dw find, qdup, zjump, not_found
         dw state, fetch, zjump, interpret_word
-        
 compiling_word:
-        dw to_cfa, comma, jump, interpret_loop
-interpret_word:        
+        dw dup, qimmed, zjump, compile_word
+interpret_word:
         dw to_cfa, execute
         dw jump, interpret_loop
+compile_word:
+        dw to_cfa, comma, jump, interpret_loop
+
+colorize_state:
+        call docol
+        dw state, fetch, zjump, colorize_interp
+        ;; red for compiling
+        dw lit, 0x200C, term_send
+        dw exit
+colorize_interp:
+        ;; green for interpreting
+        dw lit, 0x200A, term_send
+        dw exit
         
 ;; (IP) -> W
 ;; IP + 1 -> IP
@@ -159,7 +169,7 @@ fib_cont:
         dw plus, exit
 
 not_found:
-        dw not_found_msg, puts, halt
+        dw lit, not_found_msg, puts, halt
         
 welcome_msg:
         dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
@@ -171,6 +181,12 @@ inputdata_prompt:
         ;; DATA
 var_base:
         dw 10
+
+        ;; CODE
+latest:
+        push r0
+        mov r0, var_latest
+        jmp next
         
         ;; CODE
 base:
@@ -253,7 +269,7 @@ find_cmp_string:
         jne find_loop
         ;; We found it!
 find_succ:
-        mov r0, r6
+        mov r0, r4
         jmp next
 
 find_loop:
@@ -469,13 +485,78 @@ create_:
         pop r0
         add r3, 6
         jmp next
-        
+
+create_link:
+        dw comma_link
+        dw 6, "cre"
 create: 
         call docol
         dw word, create_, exit
+
+immed_link:
+        dw create_link
+        dw 5, "imm"
+immed:
+        ands [r0], 128
+        jnz true
+        jz false
+
+qimmed_link:
+        dw immed_link
+        dw 6, "?im"
+qimmed:
+        mov r0, [r0+1]
+        ands r0, 128
+        jnz true
+        jz false        
+
+hidden_link:
+        dw qimmed_link
+        dw 6, "hid"
+hidden:
+        mov r4, r0
+        add r4, 1
+        xor [r4], 64
+        pop r0
+        jmp next
+
+        ;; IMMEDIATE
+lbrac_link:
+        dw hidden_link
+        dw 129, "[  "
+lbrac:
+        mov [var_state], 0
+        jmp next
+        
+rbrac_link:
+        dw lbrac_link
+        dw 1, "]  "
+rbrac:
+        mov [var_state], 1
+        jmp next
+        
+colon_link:
+        dw rbrac_link
+        dw 1, ":  "
+colon:
+        call docol
+        dw create, latest, fetch
+        ;;  dw hidden
+        dw rbrac, exit
+
+        ;; IMMEDIATE
+semicolon_link:
+        dw colon_link
+        dw 129, ";  "
+semicolon:
+        call docol
+        dw lit, exit, comma
+        ;; dw latest, fetch
+        ;; dw hidden
+        dw lbrac, exit
         
 u_dot_link:
-        dw comma_link
+        dw semicolon_link
         dw 2, "u. "
 u_dot:
         call docol
@@ -699,7 +780,7 @@ to_cfa_link:
         dw u_dot_link
         dw 4, ">cf"
 to_cfa:
-        add r0, 3
+        add r0, 5
         jmp next
         
 execute_link:
@@ -912,7 +993,7 @@ str_buffer:
                               ;   worry, it's thread-safe.
 sample:
         ;; dw "star star star"     
-        dw "star demo star halt",0
+        dw ": 3stars star star star ; 3stars halt",0
 here_start:
         ;; each row is 16 cells
         dw "                "
