@@ -41,7 +41,7 @@ start:
         jmp next
 
 input_was_str:
-        dw "Input was:",0
+        dw "Input was ",0
 stack_zero:
         dw 0
 main:
@@ -53,25 +53,28 @@ main:
         dw lit, welcome_msg, puts
         dw lit, 0x200F, term_send
         dw lit, 0x1020, term_send
-        dw lit, input_was_str, puts
-        ;; dw lit, inputdata_prompt, puts
+        ;; dw lit, input_was_str, puts
+        dw lit, inputdata_prompt, puts
 
-        ;; dw lit, str_buffer, lit, 14, lit, 0x1032, getline
-        dw lit, 0x1030, term_send
-        dw lit, sample, puts
+        dw lit, str_buffer, lit, 50, lit, 0x1032, getline
+        dw lit, str_buffer, lit, input_ptr, store
+        ;; dw lit, sample, puts
         dw lit, 0x1060, term_send
 interpret_loop:
         dw colorize_state
         dw word, qdup, zjump, halt
-        dw two_dup, drop, puts, space
         dw find, qdup, zjump, not_found
         dw state, fetch, zjump, interpret_word
 compiling_word:
         dw dup, qimmed, zjump, compile_word
+        ;; Word is immediate, special yellow color
+        dw lit, 0x200E, term_send
 interpret_word:
+        dw lit, word_buffer, puts, space
         dw to_cfa, execute
         dw jump, interpret_loop
 compile_word:
+        dw lit, word_buffer, puts, space
         dw to_cfa, comma, jump, interpret_loop
 
 colorize_state:
@@ -359,6 +362,7 @@ udiv1616:
 to_r:
         sub r2, 1
         mov [r2], r0
+        pop r0
         jmp next
 
 from_r:
@@ -557,6 +561,9 @@ u_dot:
         call docol
         dw u_dot_, space, exit
 
+qdup_link:
+        dw u_dot_link
+        dw 4, "?du"
 qdup:
         cmp r0, 0
         je next
@@ -571,28 +578,43 @@ false:
         mov r0, 0
         jmp next
 
+less_than_link:
+        dw qdup_link
+        dw 1, "<  "
 less_than:
         pop r4
         cmp r4, r0
         jl  true
         jmp false
 
+equal_link:
+        dw less_than_link
+        dw 1, "=  "
 equal:
         pop r4
         cmp r4, r0
         je  true
         jmp false
 
+not_equal_link:
+        dw equal_link
+        dw 2, "<> "
 not_equal:
         pop r4
         cmp r4, r0
-        jne  true
+        jne true
         jmp false
 
+dup_link:
+        dw not_equal_link
+        dw 3, "dup"
 dup:
         push r0
         jmp next
 
+two_dup_link:
+        dw dup_link
+        dw 4, "2du"
 two_dup:
         ;; REFACTOR: into a single pointer indirection
         pop r4
@@ -601,40 +623,71 @@ two_dup:
         push r4
         jmp next
 
+drop_link:
+        dw two_dup_link
+        dw 4, "dro"
 drop:
         pop r0
         jmp next
 
+two_drop_link:
+        dw drop_link
+        dw 5, "2dr"
+two_drop:
+        pop r0
+        pop r0
+        jmp next
+
+swap_link:
+        dw two_drop_link
+        dw 4, "swa"
 swap:
         pop r5
         push r0
         mov r0, r5
         jmp next
 
+plus_link:
+        dw swap_link
+        dw 1, "+  "
 plus:
         pop r4
         add r0, r4
         jmp next
 
-
+minus_link:
+        dw plus_link
+        dw 1, "-  "
 minus:
         mov r4, r0
         pop r0
         sub r0, r4
         jmp next
 
+one_minus_link:
+        dw minus_link
+        dw 2, "1- "
 one_minus:
         sub r0, 1
         jmp next
 
-two_minus:
-        sub r0, 2
-        jmp next
-
+one_plus_link:
+        dw one_minus_link
+        dw 2, "1+ "
 one_plus:
         add r0, 1
         jmp next
 
+two_minus_link:
+        dw one_plus_link
+        dw 2, "2- "
+two_minus:
+        sub r0, 2
+        jmp next
+
+two_plus_link:
+        dw two_minus_link
+        dw 2, "2+ "
 two_plus:
         add r0, 2
         jmp next
@@ -708,6 +761,9 @@ word_ptr:
         dw 0
 word_buffer:
         dw "           "
+word_link:
+        dw two_plus_link
+        dw 4, "wor"
 word:
         call docol
         dw lit, word_buffer, lit, word_ptr, store
@@ -742,14 +798,20 @@ word_done:
 empty_word:
         dw lit, 0, exit
 
+divmod_link:
+        dw word_link
+        dw 4, "/mo"
 divmod:
         pop r5
         mov r6, 0
         mov r6, 16
 
         jmp next
-;; Print a character.
-;; ( c -- )
+;;; Print a character.
+;;; ( c -- )
+emit_link:
+        dw divmod_link
+        dw 4, "emi"
 emit:
         send r10, r0
         pop r0
@@ -767,12 +829,8 @@ exec_msg:
 not_found_msg:
         dw 0x200F, "Word not found! ", 0
 
-addr_msg:
-        dw 0x200F, "Address: ", 0
-
-
 to_cfa_link:
-        dw u_dot_link
+        dw emit_link
         dw 4, ">cf"
 to_cfa:
         add r0, 5
@@ -949,22 +1007,94 @@ read_string:
         mov [input_len], r1
         ret
 
-
-foo_link:
+        ;; Same code as LIT
+        ;; We use TICK to quote words instead of numeric literals.
+tick_link:
         dw halt_link
-        dw 3, "foo"
-foo:
+        dw 3, "(')"
+tick:
         push r0
-        mov r0, 42
+        mov r0, [r1]
+        add r1, 1
         jmp next
 
+run_tick_link:
+        dw tick_link
+        dw 1, "'"
+run_tick:
+        call docol
+        dw word, find, to_cfa, exit
+
+
+        ;; ZERO is a dummy constant
+zero_link:
+        dw run_tick_link
+        dw 4, "zer"
+zero:
+        push r0
+        mov r0, 0
+        jmp next
+
+        ;; TEN is a dummy constant
+ten_link:
+        dw zero_link
+        dw 3, "ten"
+ten:
+        push r0
+        mov r0, 10
+        jmp next
+
+        ;; IMMEDIATE
+if_link:
+        dw ten_link
+        dw 130, "if "
+if:
+        call docol
+        dw tick, zbranch, comma, here, lit, 0, comma, exit
+
+        ;; IMMEDIATE
+else_link:
+        dw if_link
+        dw 132, "els"
+else:
+        call docol
+        dw tick, branch, comma, here, lit, 0, comma
+        dw swap, dup, here, swap, minus, swap, store, exit
+
+        ;; IMMEDIATE
+then_link:
+        dw else_link
+        dw 132, "the"
+
+then:
+        call docol
+        dw dup, here, swap, minus, swap, store, exit
+
+        ;; IMMEDIATE
+do_link:
+        dw then_link
+        dw 130, "do "
+do:
+        call docol
+        dw here, tick, to_r, comma, tick, to_r, comma, exit
+
+        ;; IMMEDIATE
+loop_link:
+        dw do_link
+        dw 132, "loo"
+loop:
+        call docol
+        dw tick, from_r, comma, tick, from_r, comma, tick, one_plus
+        dw comma, tick, two_dup, comma
+        dw tick, equal, comma, tick, zbranch, comma, here, minus
+        dw comma, tick, two_drop, comma, exit
+
 star_link:
-        dw foo_link
+        dw loop_link
         dw 4, "sta"
 star:
         call docol
         dw lit, 42, emit, exit
-
 
 state:
         push r0
@@ -983,59 +1113,11 @@ input_ptr:
         dw sample
         ;; Global string buffer.
 str_buffer:
-        dw "              "   ; * Global string buffer for use with functions
-                              ;   that operate on strings. 14 cells. Don't
-                              ;   worry, it's thread-safe.
+
+        dw "                                              ",0
+
 sample:
         ;; dw "star star star"
-        dw ": 3stars star star star ; 3stars halt",0
+        dw ": stars zero do star loop ; ten stars halt",0
 here_start:
-        ;; each row is 16 cells
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
+        ;; The rest of the memory is free space.
