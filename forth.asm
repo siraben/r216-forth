@@ -32,6 +32,8 @@ start:
         
         sub r2, 1
         mov [r2], done
+
+        mov r3, here_start
         
         mov r10, 0
         bump r10
@@ -43,38 +45,37 @@ start:
 stack_zero:
         dw 0
 main:
+        ;; dw lit, word_buffer, lit, input_ptr, store
         dw lit, 1
         dw lit, 2
         dw lit, 3
         dw lit, 4
         dw lit, welcome_msg, puts
-        dw lit, inputdata_prompt, puts
+        dw lit, 0x200F, term_send
+        ;; dw lit, inputdata_prompt, puts
         
-        dw lit, str_buf, lit, 14, lit, 0x1032, getline
-        
+        ;; dw lit, str_buffer, lit, 14, lit, 0x1032, getline
+        dw lit, 0x1030, term_send
         dw lit, 0x1040, term_send
-        dw lit, exec_msg, puts
-        dw lit, str_buf, puts
-        
-        dw lit, 0x1050, term_send
+interpret_loop:
+        dw word, qdup, zjump, halt
         dw find, qdup, zjump, not_found
-        dw to_cfa, dup, lit, addr_msg, puts, u_dot
-
-        dw lit, 0x1060, term_send
-        dw execute
-         
-        dw lit, 0x1070, term_send
-        dw print_stack
-        dw halt
+        dw state, fetch, zjump, interpret_word
+        
+compiling_word:
+        dw to_cfa, comma, jump, interpret_loop
+interpret_word:        
+        dw to_cfa, execute
+        dw jump, interpret_loop
 
 done_msg:
-        dw 0x1013, 0x200F, "done ", 0
+        dw 0x1090, 0x200F, "done ", 0
 done:
         dw lit, done_msg, puts
-        dw exit
+        dw halt
 sz_link:
         dw 0
-        dw "s0 "
+        dw 2, "s0 "
 sz:
         push r0
         mov r0, [stack_zero]
@@ -131,19 +132,23 @@ inputdata_prompt:
         dw 0x1030, 0x200F, "> ", 0
         dw 0
         
+        ;; DATA
 var_base:
         dw 10
-
+        
+        ;; CODE
 base:
         push r0
         mov r0, var_base
         jmp next
-
+        
+        ;; CODE
 hidden:
         ands r0, 64
         jz false
         jmp true
-
+        
+        ;; CODE
 bool_and:
         pop r4
         and r0, r4
@@ -162,13 +167,13 @@ bool_and:
 ;;         jnz false
 ;;         jmp true
         
-; * Writes zero-terminated strings to the terminal.
-; * r0 points to buffer to write from.
-; * r10 is terminal port address.
-; * r11 is incremented by the number of characters sent to the terminal (which
-;   doesn't help at all if the string contains colour or cursor codes).
+        ;; Find a word
+        ;; ( str_addr len -- xt | 0 )
+        ;; CODE
 find:
-        push r0
+        ;; String length
+        mov r9, r0
+        pop r11
         ;; r4 points to the entry we're searching
         ;; Get the address of the latest word and skip the link
         ;; pointer.
@@ -185,30 +190,26 @@ find_restart:
         ;; Remove flag data except for length.
         and r5, 31
         ;; Same length?
-        cmp r5, [input_len]
+        cmp r5, r9
         ;; Yes, compare strings.
         je find_cmp_string
         ;; No, continue searching.
         jmp find_loop
-
-aaa:
-        mov r0, 123
-        jmp next
 find_cmp_string:
-        mov r7, str_buf
+        mov r7, r11
         mov r6, r4
         add r6, 2
         ;; r6 now points at the beginning of the name field
         mov r8, [r6 + 0]
         cmp r8, [r7 + 0]
         jne find_loop
-        cmp [input_len],1
+        cmp r9, 1
         je find_succ
         
         mov r8, [r6 + 1]
         cmp r8, [r7 + 1]
         jne find_loop
-        cmp [input_len],2
+        cmp r9, 2
         je find_succ
         
         mov r8, [r6 + 2]
@@ -227,43 +228,66 @@ find_loop:
         jmp find_restart
 
         
-        
+        ;; CODE
 allot:
         add r3, r0
         pop r0
         jmp next
-        
+
+        ;; CODE
+here_link:
+        dw print_stack_link
+        dw 4, "her"
 here:
         push r0
         mov r0, r3
         jmp next
 
+fetch_link:
+        dw here_link
+        dw 1, "@  "
+        ;; CODE
 fetch:
         mov r4, [r0]
         mov r0, r4
         jmp next
 
+store_link:
+        dw fetch_link
+        dw 1, "!  "
+        ;; CODE
 store:
         pop r4
         mov [r0], r4
         pop r0
         jmp next
 
+comma_link:
+        dw store_link
+        dw 1, ",  "
+comma:
+        mov [r3], r0
+        pop r0
+        add r3, 1
+        jmp next
+
+        ;; CODE
 plus_store:
         pop r4
         add [r0], r4
         pop r0
         jmp next
-        
 
+        ;; CODE
 minus_store:
         pop r4
         sub [r0], r4
         pop r0
         jmp next
 
-;; unsigned divide r4 by r5 (doesn't handle division by 0)
-;; quotient is r4, remainder is r6; clobbers r7 and r8
+        ;; unsigned divide r4 by r5 (doesn't handle division by 0)
+        ;; quotient is r4, remainder is r6; clobbers r7 and r8
+        ;; CODE
 udiv1616:
 	mov r6, 0
 	mov r7, 0
@@ -341,7 +365,7 @@ uwidth:
         dw branch, 3, lit, 1, exit
 
 u_dot_link:
-        dw print_stack_link
+        dw comma_link
         dw 2, "u. "
 u_dot:
         call docol
@@ -366,9 +390,29 @@ less_than:
         cmp r4, r0
         jl  true
         jmp false
+
+equal:  
+        pop r4
+        cmp r4, r0
+        je  true
+        jmp false
+
+not_equal:  
+        pop r4
+        cmp r4, r0
+        jne  true
+        jmp false
         
 dup:
         push r0
+        jmp next
+
+two_dup:
+        ;; REFACTOR: into a single pointer indirection
+        pop r4
+        push r4
+        push r0
+        push r4
         jmp next
 
 drop:
@@ -456,16 +500,61 @@ getline:
         pop r1
         mov r7, 0x200F
         pop r0
-        ;; Save r1
+        
+        ;; Save r3, r1
+        push r3
         push r6
         call read_string
-        ;; Restore r1
+        ;; Restore r1, r3
         pop r1
-        
+        pop r3
         ;; New TOS
         pop r0
         jmp next
 
+getc:
+        call docol
+        dw lit, input_ptr, fetch, fetch
+        dw lit, 1, lit, input_ptr, plus_store
+        dw exit
+
+word_ptr:
+        dw 0
+word_buffer:
+        dw "           "
+word:
+        call docol
+        dw lit, word_buffer, lit, word_ptr, store
+        dw lit, 0
+skip_space:
+        dw drop
+        dw getc
+        dw qdup, zjump, empty_word
+        dw dup, lit, 32, not_equal
+        dw zjump, skip_space
+        ;; Possibly add more space characters to skip
+
+        dw jump, actual_word
+
+actual_word:
+        dw lit, word_ptr, fetch, store
+        dw lit, 1, lit, word_ptr, plus_store
+
+actual_word_loop:
+        dw getc
+        dw dup, zjump, word_done
+        dw dup, lit, 32, not_equal, zjump, word_done
+        dw jump, actual_word
+
+word_done:
+        dw drop
+        dw lit, 0, lit, word_ptr, fetch, store
+        dw lit, word_ptr, fetch, lit, word_buffer, minus
+        dw lit, word_buffer, dup, lit, word_ptr, store
+        dw swap, exit
+
+empty_word:
+        dw lit, 0, exit
 
 divmod:
         pop r5
@@ -526,7 +615,7 @@ addr_msg:
 
         
 to_cfa_link:
-        dw print_stack_link
+        dw u_dot_link
         dw 4, ">cf"
 to_cfa:
         add r0, 3
@@ -557,7 +646,10 @@ lit:
         mov r0, [r1]
         add r1, 1
         jmp next
-         
+
+halt_link:
+        dw lit_link
+        dw 4, "hal"
 halt:
         hlt
 
@@ -701,24 +793,92 @@ read_string:
         ret
 
 
+foo_link:
+        dw halt_link
+        dw 3, "foo"
+foo:
+        push r0
+        mov r0, 42
+        jmp next
+        
 star_link:
-        dw u_dot_link
+        dw foo_link
         dw 4, "sta"
 star:
         call docol
         dw lit, 42, emit, exit
         
+
+state:
+        push r0
+        mov r0, var_state
+        jmp next
         
+var_state:
+        dw 0
         ;; Latest word to be defined
 var_latest:
         dw star_link
         ;; Length of latest input
 input_len:
         dw 0
-
+input_ptr:
+        dw sample
         ;; Global string buffer.
-str_buf:
+str_buffer:
         dw "              "   ; * Global string buffer for use with functions
                               ;   that operate on strings. 14 cells. Don't
                               ;   worry, it's thread-safe.
-
+sample:
+        ;; dw "star star star"     
+        dw "here @ u. foo here ! here @ u. .s halt",0
+here_start:
+        ;; each row is 16 cells
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "        
