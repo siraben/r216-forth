@@ -22,16 +22,27 @@
 
 
 start:
+        ;; Check if this is a reboot.
+        mov r0, [rebooted]
+        jnz did_reboot
+        ;; If not, let's set up the HERE pointer.
+        mov r3, here_start
+
+        ;; Set the reboot flag for next time.
+        mov [rebooted], 1
+did_reboot:
         mov sp, 0
         push 1234
 
+        ;; Set up stack pointer
         mov [stack_zero], sp
+        ;; And return stack
         mov r2, 0x1f00
 
+        ;; In case we call EXIT from the top level.
         sub r2, 1
         mov [r2], done
 
-        mov r3, here_start
 
         mov r10, 0
         bump r10
@@ -40,16 +51,16 @@ start:
         mov r1, main
         jmp next
 
+rebooted:
+        dw 0
+
 input_was_str:
         dw "Input was ",0
 stack_zero:
         dw 0
 main:
         ;; dw lit, word_buffer, lit, input_ptr, store
-        dw lit, 1
-        dw lit, 2
-        dw lit, 3
-        dw lit, 4
+        dw page
         dw lit, welcome_msg, puts
         dw lit, 0x200F, term_send
         dw lit, 0x1020, term_send
@@ -180,24 +191,27 @@ inputdata_prompt:
 var_base:
         dw 10
 
+latest_link:
+        dw print_stack_link
+        dw 6, "lat"
         ;; CODE
 latest:
         push r0
         mov r0, var_latest
         jmp next
 
+base_link:
+        dw latest_link
+        dw 4, "bas"
         ;; CODE
 base:
         push r0
         mov r0, var_base
         jmp next
 
-        ;; CODE
-hidden:
-        ands r0, 64
-        jz false
-        jmp true
-
+bool_and_link:
+        dw base_link
+        dw 3, "and"
         ;; CODE
 bool_and:
         pop r4
@@ -220,6 +234,9 @@ bool_and:
         ;; Find a word
         ;; ( str_addr len -- xt | 0 )
         ;; CODE
+find_link:
+        dw bool_and_link
+        dw 4, "fin"
 find:
         ;; String length
         mov r9, r0
@@ -279,6 +296,9 @@ find_loop:
 
 
         ;; CODE
+allot_link:
+        dw find_link
+        dw 5, "all"
 allot:
         add r3, r0
         pop r0
@@ -286,7 +306,7 @@ allot:
 
         ;; CODE
 here_link:
-        dw print_stack_link
+        dw allot_link
         dw 4, "her"
 here:
         push r0
@@ -751,11 +771,22 @@ getline:
         pop r0
         jmp next
 
-getc:
+        ;; GETC to be called via other Forth words
+getc_forth:
         call docol
         dw lit, input_ptr, fetch, fetch
         dw lit, 1, lit, input_ptr, plus_store
         dw exit
+
+        ;; GETC to be called by assembly
+        ;; Stores result in r5
+        ;; Clobbers r9
+getc_asm:
+        mov r9, [input_ptr]
+        mov r5, [r9]
+        add r9, 1
+        mov [input_ptr], r9
+        ret
 
 word_ptr:
         dw 0
@@ -765,35 +796,57 @@ word_link:
         dw two_plus_link
         dw 4, "wor"
 word:
-        call docol
-        dw lit, word_buffer, lit, word_ptr, store
-        dw lit, 0
+        ;; r6: word pointer
+        ;; r4: character point
+        ;; r5: return from getc_asm
+        ;; r7: first indirection of word_ptr
+        ;; Used to be a WORD word but has been rewritten in assembly for speed.
+        ;; dw lit, word_buffer, lit, word_ptr, store
+        mov [word_ptr], word_buffer
+        mov r7, word_buffer
+        mov r4, 0
 skip_space:
-        dw drop
-        dw getc
-        dw qdup, zjump, empty_word
-        dw dup, lit, 32, not_equal
-        dw zjump, skip_space
-        ;; Possibly add more space characters to skip
+        call getc_asm
+        ;; dw qdup, zjump, empty_word
+        cmp r5, 0
+        je empty_word
+        ;; dw dup, lit, 32, not_equal
+        ;; dw zjump, skip_space
+        cmp r5, 32
+        je skip_space
 
-        dw jump, actual_word
+        ;; Possibly add more space characters to skip
+        ;; dw jump, actual_word
+        jmp actual_word
 
 actual_word:
-        dw lit, word_ptr, fetch, store
-        dw lit, 1, lit, word_ptr, plus_store
+        ;; dw lit, word_ptr, fetch, store
+        mov [r7], r5
+        ;; Increase character count
+        add r4, 1
+        ;; dw lit, 1, lit, word_ptr, plus_store
+        add r7, 1
 
 actual_word_loop:
-        dw getc
-        dw dup, zjump, word_done
-        dw dup, lit, 32, not_equal, zjump, word_done
-        dw jump, actual_word
+        ;; dw getc
+        call getc_asm
+        ;; dw dup, zjump, word_done
+        cmp r5, 0
+        je word_done
+
+        ;; dw dup, lit, 32, not_equal, zjump, word_done
+        cmp r5, 32
+        je word_done
+        ;; dw jump, actual_word
+        jmp actual_word
 
 word_done:
-        dw drop
-        dw lit, 0, lit, word_ptr, fetch, store
-        dw lit, word_ptr, fetch, lit, word_buffer, minus
-        dw lit, word_buffer, dup, lit, word_ptr, store
-        dw swap, exit
+        push r0
+        push word_buffer
+        mov r0, r4
+        ;; dw lit, 0, lit, word_ptr, fetch, store
+        mov [r7], 0
+        jmp next
 
 empty_word:
         dw lit, 0, exit
@@ -807,10 +860,32 @@ divmod:
         mov r6, 16
 
         jmp next
+
+origin_link:
+        dw divmod_link
+        dw 6, "ori"
+origin:
+        send r10, 0x1000
+        jmp next
+
+page_link:
+        dw origin_link
+        dw 4, "pag"
+page:
+        send r10, 0x1000
+        mov r4, 192
+page_loop:
+        send r10, 32
+        sub r4, 1
+        jnz page_loop
+        ;; Reset cursor to origin
+        send r10, 0x1000
+        jmp next
+
 ;;; Print a character.
 ;;; ( c -- )
 emit_link:
-        dw divmod_link
+        dw page_link
         dw 4, "emi"
 emit:
         send r10, r0
@@ -1112,12 +1187,28 @@ input_len:
 input_ptr:
         dw sample
         ;; Global string buffer.
+        ;; 256 characters.
 str_buffer:
-
-        dw "                                              ",0
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw "                "
+        dw 0
 
 sample:
         ;; dw "star star star"
-        dw ": stars zero do star loop ; ten stars halt",0
+        dw "stars zero do star loop ; ten stars halt",0
 here_start:
         ;; The rest of the memory is free space.
