@@ -27,22 +27,22 @@ start:
         jnz did_reboot
         ;; If not, let's set up the HERE pointer.
         mov r3, here_start
-
-        ;; Set the reboot flag for next time.
-        mov [rebooted], 1
 did_reboot:
+        ;; Regardless of whether or not we rebooted, we do the
+        ;; following.
+        ;; Set up stack pointer (adjusts automatically to memory space)
         mov sp, 0
-        push 1234
-
-        ;; Set up stack pointer
+        push 0
+        mov [stack_zero_prog], sp
+        ;; User stack zero
+        push 0
         mov [stack_zero], sp
         ;; And return stack
         mov r2, 0x1f00
 
         ;; In case we call EXIT from the top level.
         sub r2, 1
-        mov [r2], done
-
+        mov [r2], interpret_done
 
         mov r10, 0
         bump r10
@@ -56,37 +56,63 @@ rebooted:
 
 input_was_str:
         dw "Input was ",0
+
+        ;; Our "stack zero" to protect against underflow.
+stack_zero_prog:
+        dw 0
+
 stack_zero:
         dw 0
 main:
         ;; dw lit, word_buffer, lit, input_ptr, store
+        dw lit, rebooted, fetch
+        dw lit, 1, lit, rebooted, store
+        dw zjump, main_cont
+clear_reboot:
         dw page
+main_cont:
         dw lit, welcome_msg, puts
         dw lit, 0x200F, term_send
         dw lit, 0x1020, term_send
+
         ;; dw lit, input_was_str, puts
         dw lit, inputdata_prompt, puts
 
-        dw lit, str_buffer, lit, 50, lit, 0x1032, getline
+        dw lit, str_buffer, lit, 128, lit, 0x1022, getline
+        dw page
         dw lit, str_buffer, lit, input_ptr, store
         ;; dw lit, sample, puts
-        dw lit, 0x1060, term_send
+        ;; dw lit, 0x1060, term_send
 interpret_loop:
-        dw colorize_state
-        dw word, qdup, zjump, halt
-        dw find, qdup, zjump, not_found
+        dw check_underflow
+        dw word, qdup, zjump, interpret_done
+        dw find, qdup, zjump, maybe_number
         dw state, fetch, zjump, interpret_word
 compiling_word:
         dw dup, qimmed, zjump, compile_word
         ;; Word is immediate, special yellow color
         dw lit, 0x200E, term_send
 interpret_word:
-        dw lit, word_buffer, puts, space
+        ;; dw lit, word_buffer, puts, space
         dw to_cfa, execute
         dw jump, interpret_loop
 compile_word:
-        dw lit, word_buffer, puts, space
+        ;; dw lit, word_buffer, puts, space
         dw to_cfa, comma, jump, interpret_loop
+
+maybe_number:
+        dw lit, word_buffer, number
+        dw lit, num_status, fetch, zjump, not_found
+        dw state, fetch, zjump, interpret_number
+compile_number:
+        dw lit, lit, comma, comma
+        ;; dw lit, 0x2009, term_send
+        ;; dw lit, word_buffer, puts, space
+        dw jump, interpret_loop
+interpret_number:
+        ;; dw lit, 0x200B, term_send
+        ;; dw lit, word_buffer, puts, space
+        dw jump, interpret_loop
 
 colorize_state:
         call docol
@@ -124,8 +150,8 @@ exit:
         jmp next
 
 done_msg:
-        dw 0x1090, 0x200F, "done ", 0
-done:
+        dw 0x200F, " ok", 0
+interpret_done:
         dw lit, done_msg, puts
         dw halt
 sz_link:
@@ -167,24 +193,27 @@ print_stack_loop:
 print_stack_done:
         dw drop, exit
 
-
-fib:
-        call docol
-        dw dup, lit, 2, less_than, zjump, fib_cont
-        dw exit
-fib_cont:
-        dw dup, one_minus, fib
-        dw swap, one_minus, one_minus, fib
-        dw plus, exit
-
 not_found:
+        dw lit, word_buffer, puts
         dw lit, not_found_msg, puts, halt
 
+check_underflow:
+        cmp sp, [stack_zero_prog]
+        je report_underflow
+        jmp next
+report_underflow:
+        mov r0, stack_underflow_msg
+        call write_string
+        hlt
+
+stack_underflow_msg:
+        dw 0x1000, 0x200C, "Stack underflow.", 0
+
 welcome_msg:
-        dw 0x1000, 0x200E, "Welcome to R216 Forth.", 0
+        dw 0x1000, 0x200E, "System booted.", 0
 
 inputdata_prompt:
-        dw 0x1030, 0x200F, "> ", 0
+        dw 0x1020, 0x200F, "> ", 0
         dw 0
 
         ;; DATA
@@ -341,6 +370,9 @@ comma:
         add r3, 1
         jmp next
 
+plus_store_link:
+        dw comma_link
+        dw 2, "+! "
         ;; CODE
 plus_store:
         pop r4
@@ -348,6 +380,9 @@ plus_store:
         pop r0
         jmp next
 
+minus_store_link:
+        dw plus_store_link
+        dw 2, "-! "
         ;; CODE
 minus_store:
         pop r4
@@ -378,19 +413,27 @@ udiv1616:
         mov r4, r7
         ret
 
-
+to_r_link:
+        dw minus_store_link
+        dw 2, ">r "
 to_r:
         sub r2, 1
         mov [r2], r0
         pop r0
         jmp next
 
+from_r_link:
+        dw to_r_link
+        dw 2, "r> "
 from_r:
         push r0
         mov r0, [r2]
         add r2, 1
         jmp next
 
+div_mod_link:
+        dw from_r_link
+        dw 4, "/mo"
 div_mod:
         pop r4
         mov r5, r0
@@ -406,18 +449,31 @@ left_shift:
 right_shift:
         shr r0, 1
         jmp next
+
+nip_link:
+        dw div_mod_link
+        dw 3, "nip"
 nip:
         pop r4
         jmp next
 
+mod_link:
+        dw nip_link
+        dw 3, "mod"
 mod:
         call docol
         dw div_mod, drop, exit
 
+div_link:
+        dw mod_link
+        dw 3, "div"
 div:
         call docol
         dw div_mod, nip, exit
 
+space_link:
+        dw div_link
+        dw 5, "spa"
 space:
         send r10, 32
         jmp next
@@ -506,11 +562,14 @@ create_:
         jmp next
 
 create_link:
-        dw comma_link
+        dw space_link
         dw 6, "cre"
 create:
         call docol
-        dw word, create_, exit
+        dw word
+        ;; DEBUG PRINT
+        ;; dw lit, word_buffer, puts, space
+        dw create_, exit
 
 immed_link:
         dw create_link
@@ -560,7 +619,7 @@ colon_link:
 colon:
         call docol
         dw create, latest, fetch
-        ;;  dw hidden
+        dw hidden
         dw rbrac, exit
 
         ;; IMMEDIATE
@@ -570,12 +629,103 @@ semicolon_link:
 semicolon:
         call docol
         dw lit, exit, comma
-        ;; dw latest, fetch
-        ;; dw hidden
+        dw latest, fetch
+        dw hidden
         dw lbrac, exit
 
-u_dot_link:
+dot_link:
         dw semicolon_link
+        dw 1, ".  "
+dot:
+        jmp d_dot
+
+;;; Much faster than U. but only for base 10.
+d_dot_link:
+        dw dot_link
+        dw 2, "d. "
+d_dot:
+;;; Written by LBPHacker
+;;; unsigned render r4 into zero-terminated bcd
+;;; r5 is set to point to result (owned by the subroutine, don't write to it)
+;;; clobbers r4, r6, r7 and r8
+tozstringu16:
+        mov r4, r0
+        test r4, r4
+        jz .r4_zero
+        mov r5, 0
+        mov r6, 0
+        mov r7, 16
+.loop:
+        shl r4, 1
+        scl r5, 1
+        scl r6, 1
+        sub r7, 1
+        jz .loop_done
+        mov r8, r5
+        ror r5, 1
+        or r8, r5
+        ror r5, 1
+        and r8, r5
+        ror r5, 1
+        or r8, r5
+        rol r5, 3
+        and r8, 0x1111
+        add r5, r8
+        add r5, r8
+        add r5, r8
+        jmp .loop
+.loop_done:
+        mov r7, .output_4
+        mov [r7], r5
+        and [r7], 15
+        add [r7], '0'
+        shr r5, 4
+        sub r7, 1
+        mov [r7], r5
+        and [r7], 15
+        add [r7], '0'
+        shr r5, 4
+        sub r7, 1
+        mov [r7], r5
+        and [r7], 15
+        add [r7], '0'
+        shr r5, 4
+        add r5, '0'
+        sub r7, 1
+        mov [r7], r5
+        add r6, '0'
+        sub r7, 1
+        mov [r7], r6
+        mov r5, r7
+.find_head:
+        cmp [r5], '0'
+        jne .done
+        add r5, 1
+        jmp .find_head
+.done:
+        jmp print_d_dot
+.r4_zero:
+        mov r5, .output_0
+        add r5, 4
+        mov [r5], '0'
+        jmp print_d_dot
+.output_0: dw 0
+.output_1: dw 0
+.output_2: dw 0
+.output_3: dw 0
+.output_4: dw 0
+.output_z: dw 0
+
+print_d_dot:
+        mov r0, r5
+        call write_string
+        ;; Space at the end
+        send r10, 32
+        pop r0
+        jmp next
+
+u_dot_link:
+        dw d_dot_link
         dw 2, "u. "
 u_dot:
         call docol
@@ -636,11 +786,8 @@ two_dup_link:
         dw dup_link
         dw 4, "2du"
 two_dup:
-        ;; REFACTOR: into a single pointer indirection
-        pop r4
-        push r4
         push r0
-        push r4
+        push [sp+1]
         jmp next
 
 drop_link:
@@ -684,8 +831,83 @@ minus:
         sub r0, r4
         jmp next
 
-one_minus_link:
+times_link:
         dw minus_link
+        dw 1, "*  "
+times:
+;;; Written by LBPHacker
+;;; unsigned multiply r4 by r5
+;;; product is r4; clobbers r5, r6 and r7
+umul1616_16:
+        pop r5
+        mov [.cache_1l], r0
+        mov [.cache_3l], r0
+        add r0, r0
+        mov [.cache_2l], r0
+        add [.cache_3l], r0
+        mov r6, 8
+        mov r0, 0
+.loop:
+        shl r0, 2
+        rol r5, 2
+        mov r7, r5
+        and r7, 3
+        add r0, [.cache_0l+r7]
+        sub r6, 1
+        jnz .loop
+        jmp next
+.cache_0l: dw 0
+.cache_1l: dw 0
+.cache_2l: dw 0
+.cache_3l: dw 0
+double_times_link:
+        dw times_link
+        dw 3, "um*"
+double_times:
+;;; Written by LBPHacker
+;;; unsigned multiply r4 by r5
+;;; product is r4_32; clobbers r6, r7 and r8
+umul1616:
+        mov r4, r0
+        pop r5
+        mov [.cache_1l], r5
+        mov [.cache_3l], r5
+        mov [.cache_3h], 0
+        mov r6, 0
+        add r5, r5
+        adc r6, 0
+        mov [.cache_2l], r5
+        mov [.cache_2h], r6
+        add [.cache_3l], r5
+        adc [.cache_3h], r6
+        mov r7, r4
+        mov r6, 8
+        mov r5, 0
+        mov r4, 0
+.loop:
+        shl r4, 2
+        scl r5, 2
+        rol r7, 2
+        mov r8, r7
+        and r8, 3
+        add r4, [.cache_0l+r8]
+        adc r5, [.cache_0h+r8]
+        sub r6, 1
+        jnz .loop
+        push r4
+        mov r0, r5
+        jmp next
+.cache_0l: dw 0
+.cache_1l: dw 0
+.cache_2l: dw 0
+.cache_3l: dw 0
+.cache_0h: dw 0
+.cache_1h: dw 0
+.cache_2h: dw 0
+.cache_3h: dw 0
+
+one_minus_link:
+        dw double_times_link
         dw 2, "1- "
 one_minus:
         sub r0, 1
@@ -788,12 +1010,62 @@ getc_asm:
         mov [input_ptr], r9
         ret
 
+;;; 1 is success, 0 is failure
+num_status:
+        dw 0
+
+number_link:
+        dw two_plus_link
+        dw 12, "num"
+number:
+;;; Written by LBPHacker
+;;; unsigned parse zero-terminated bcd pointed to by r4 into r5
+;;; carry flag is set if something goes wrong, clear otherwise
+;;; clobbers r4, r6 and r7
+        mov r4, r0
+fromzstringu16:
+        mov r5, 0
+        cmp [r4], 0
+        je .err_empty
+.loop:
+        mov r6, [r4]
+        test r6, r6
+        jnz .not_done
+        mov r4, 0
+        jmp .done
+.not_done:
+        add r4, 1
+        sub r6, '0'
+        jc .err_nondigit
+        cmp r6, 9
+        ja .err_nondigit
+        cmp r5, 6553
+        ja .err_overflow
+        shl r5, 1
+        mov r7, r5
+        shl r5, 2
+        add r5, r7
+        add r5, r6
+        jc .err_overflow
+        jmp .loop
+.err_empty:
+.err_nondigit:
+.err_overflow:
+        mov [num_status], 0
+        jmp next
+.done:
+        mov [num_status], 1
+        add r4, 0xFFFF
+        mov r0, r5
+        jmp next
+
+
 word_ptr:
         dw 0
 word_buffer:
         dw "           "
 word_link:
-        dw two_plus_link
+        dw number_link
         dw 4, "wor"
 word:
         ;; r6: word pointer
@@ -849,7 +1121,8 @@ word_done:
         jmp next
 
 empty_word:
-        dw lit, 0, exit
+        mov r0, 0
+        jmp next
 
 divmod_link:
         dw word_link
@@ -902,7 +1175,7 @@ term_send:
 exec_msg:
         dw 0x200F, "Executing ", 0
 not_found_msg:
-        dw 0x200F, "Word not found! ", 0
+        dw 0x200F, " not found! ", 0
 
 to_cfa_link:
         dw emit_link
@@ -919,8 +1192,15 @@ execute:
         pop r0
         jmp r4
 
-puts_link:
+recurse_link:
         dw execute_link
+        dw 7, "rec"
+recurse:
+        call docol
+        dw latest, fetch, to_cfa, exit
+
+puts_link:
+        dw recurse_link
         dw 4, "put"
 puts:
         call write_string
@@ -1051,7 +1331,7 @@ read_string:
         mov r1, 0                 ; * r1 holds the number of characters read.
 .read_character:
         call read_character_blink
-        cmp r8, 13                ; * Check for thr Return key.
+        cmp r8, 13                ; * Check for the Return key.
         je .got_return
         cmp r8, 8                 ; * Check for the Backspace key.
         je .got_backspace
@@ -1164,13 +1444,6 @@ loop:
         dw tick, equal, comma, tick, zbranch, comma, here, minus
         dw comma, tick, two_drop, comma, exit
 
-star_link:
-        dw loop_link
-        dw 4, "sta"
-star:
-        call docol
-        dw lit, 42, emit, exit
-
 state:
         push r0
         mov r0, var_state
@@ -1180,35 +1453,23 @@ var_state:
         dw 0
         ;; Latest word to be defined
 var_latest:
-        dw star_link
+        dw loop_link
         ;; Length of latest input
 input_len:
         dw 0
 input_ptr:
-        dw sample
+        dw str_buffer
         ;; Global string buffer.
         ;; 256 characters.
 str_buffer:
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw "                "
-        dw 0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
-sample:
-        ;; dw "star star star"
-        dw "stars zero do star loop ; ten stars halt",0
 here_start:
         ;; The rest of the memory is free space.
