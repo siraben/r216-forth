@@ -61,8 +61,8 @@ star
   as
   - 16-bit multiplication (16 * 16 -> 16 bit or 16 * 16 -> 32 bit)
   - Terminal output/input (can be generalized to other peripherals)
-- Adapts to memory layout, can be flashed on the 2K, 4K, or 8K variant
-  of the R216
+- Adapts to memory layout, can be flashed on the 4K or 8K variant of
+  the R216
 
 ### Quirks
 - Only the first three characters and length are checked when

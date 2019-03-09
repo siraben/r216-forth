@@ -21,29 +21,54 @@
 ;;; 5 onwards: data
 
 
+;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; This program demonstrates a bug with r3 and reset.
+;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        
 start:
         ;; Check if this is a reboot.
-        mov r0, [rebooted]
-        jnz did_reboot
+        cmp [rebooted], 0
+        jne did_reboot
+didnt_reboot:
         ;; If not, let's set up the HERE pointer.
         ;; otherwise our word definitions get clobbered.
         mov r3, here_start
         mov [var_here], r3
+        jmp main_asm
 did_reboot:
+        
+        jmp main_asm
+main_asm:
         mov [var_state], 0
-        mov r3, [var_here]
 
+        mov r0, 0x2000
+        mov [0x1FFF], r0
+        mov r0, 0x1000
+        mov [0x0FFF], r0
+        mov r0, 0x0800
+        mov [0x07FF], r0
+
+        mov r0, 0xFFFF
+                
         ;; Regardless of whether or not we rebooted, we do the
         ;; following.
         ;; Set up stack pointer (adjusts automatically to memory space)
-        mov sp, 0
-        push 0
+        mov sp, [r0]
         mov [stack_zero_prog], sp
         ;; User stack zero
         push 0
+        
         mov [stack_zero], sp
-        ;; And return stack
-        mov r2, 0x1f00
+        ;; Allocate 64 stack items before placing return stack.
+        mov r2, sp
+        mov r4, 64
+        sub r2, r4
+
+        ;; Set here_end
+        mov r4, 64
+        mov r0, r2
+        sub r0, r4
+        mov [var_here_end], r0
 
         ;; In case we call EXIT from the top level.
         sub r2, 1
@@ -55,33 +80,19 @@ did_reboot:
 
         mov r1, main
         jmp next
-
-rebooted:
-        dw 0
-
-input_was_str:
-        dw "Input was ",0
-
-        ;; Our "stack zero" to protect against underflow.
-stack_zero_prog:
-        dw 0
-
-stack_zero:
-        dw 0
+        
 main:
         dw lit, rebooted, fetch
         dw lit, 1, lit, rebooted, store
         dw zjump, main_cont
 clear_reboot:
-        dw lit, str_buffer, lit, 128, erase
-        ;; dw print_stack
+        ;; dw lit, str_buffer, lit, 128, erase
         dw page
 main_cont:
-        dw lit, welcome_msg, puts
+        dw welcome_proc
         dw lit, 0x200F, term_send
         dw lit, 0x1020, term_send
 
-        ;; dw lit, input_was_str, puts
         dw lit, inputdata_prompt, puts
 
         dw lit, str_buffer, lit, 128, lit, 0x1022, getline
@@ -156,10 +167,12 @@ exit:
 
 done_msg:
         dw 0x200F, " ok", 0
+        
 interpret_done:
         dw here, lit, var_here, store
         dw lit, done_msg, puts
-        dw halt
+        dw lit, str_buffer, lit, 128, erase
+        dw key, drop, jump, main 
 sz_link:
         dw 0
         dw 2, "s0 "
@@ -211,12 +224,26 @@ report_underflow:
         mov r0, stack_underflow_msg
         call write_string
         hlt
+        jmp start
 
 stack_underflow_msg:
         dw 0x1000, 0x200C, "Stack underflow.", 0
 
 welcome_msg:
-        dw 0x1000, 0x200E, "System booted.", 0
+        dw 0x1000, 0x200E, "---R216 Forth---", 0
+
+bytes_free_msg:
+        dw 0x200E, "cells left", 0
+        
+        ;; Word to be run on boot
+welcome_proc:
+        call docol
+        dw lit, welcome_msg, puts
+        dw lit, 0x1010, term_send
+        dw lit, 0x200A, term_send
+        
+        dw unused, d_dot, lit, bytes_free_msg, puts
+        dw exit
 
 inputdata_prompt:
         dw 0x1020, 0x200F, "> ", 0
@@ -363,9 +390,21 @@ allot:
         pop r0
         jmp next
 
+
+        ;; CODE
+unused_link:
+        dw allot_link
+        dw 6, "unu"
+unused:
+        push r0
+        mov r4, here_start
+        mov r0, [var_here_end]
+        sub r0, r4
+        jmp next
+        
         ;; CODE
 here_link:
-        dw allot_link
+        dw unused_link
         dw 4, "her"
 here:
         push r0
@@ -582,7 +621,7 @@ uwidth:
 
         ;; ( addr length -- )
         ;; Parse the next word and create a definition header for it.
-create_:
+create_asm:
         ;; Write the link pointer first
         mov r4, [var_latest]
         mov [r3], r4
@@ -620,13 +659,20 @@ create:
         dw word
         ;; DEBUG PRINT
         dw lit, word_buffer, puts, space
-        dw create_, exit
+        dw create_asm, exit
 
 immed_link:
         dw create_link
         dw 5, "imm"
 immed:
-        ands [r0], 128
+        mov r4, r0
+        mov r5, 128
+        xor [r4+1], r5
+        pop r0
+        jmp next
+        
+        mov r4, 128
+        ands [r0], r4
         jnz true
         jz false
 
@@ -644,14 +690,23 @@ hidden_link:
         dw 6, "hid"
 hidden:
         mov r4, r0
-        add r4, 1
-        xor [r4], 64
+        mov r5, 64
+        xor [r4+1], r5
         pop r0
         jmp next
 
+qhidden_link:
+        dw hidden_link
+        dw 7, "?hi"
+qhidden:
+        mov r0, [r0+1]
+        ands r0, 64
+        jnz true
+        jz false
+
         ;; IMMEDIATE
 lbrac_link:
-        dw hidden_link
+        dw qhidden_link
         dw 129, "[  "
 lbrac:
         mov [var_state], 0
@@ -854,8 +909,16 @@ not_equal:
         jne true
         jmp false
 
-dup_link:
+not_link:
         dw not_equal_link
+        dw 3, "not"
+not:
+        mov r4, 65535
+        xor r0, r4
+        jmp next
+        
+dup_link:
+        dw not_link
         dw 3, "dup"
 dup:
         push r0
@@ -876,8 +939,17 @@ drop:
         pop r0
         jmp next
 
-two_drop_link:
+rdrop_link:
         dw drop_link
+        dw 5, "rdr"
+rdrop:
+        mov r4, [r2]
+        add r2, 1
+        jmp next
+        
+        
+two_drop_link:
+        dw rdrop_link
         dw 5, "2dr"
 two_drop:
         pop r0
@@ -1088,13 +1160,11 @@ getline:
         mov r7, 0x200F
         pop r0
 
-        ;; Save r3, r1
-        push r3
+        ;; Save r1
         push r6
         call read_string
-        ;; Restore r1, r3
+        ;; Restore r1
         pop r1
-        pop r3
         ;; New TOS
         pop r0
         jmp next
@@ -1116,12 +1186,21 @@ getc_asm:
         mov [input_ptr], r9
         ret
 
+
+key_link:
+        dw two_plus_link
+        dw 3, "key"
+key:
+        push r0
+        call read_character
+        jmp next
+        
 ;;; 1 is success, 0 is failure
 num_status:
         dw 0
 
 number_link:
-        dw two_plus_link
+        dw key_link
         dw 6, "num"
 number:
 ;;; Written by LBPHacker
@@ -1357,8 +1436,18 @@ puts:
         jmp next
 
 
-lit_link:
+id_dot_link:
         dw puts_link
+        dw 3, "id."
+id_dot:
+        add r0, 2
+        send r10, [r0]
+        send r10, [r0+1]
+        send r10, [r0+2]
+        pop r0
+        jmp next
+lit_link:
+        dw id_dot_link
         dw 3, "lit"
 lit:
         push r0
@@ -1414,6 +1503,7 @@ halt_link:
         dw 4, "hal"
 halt:
         hlt
+        jmp start
 
 ; * Writes zero-terminated strings to the terminal.
 ; * r0 points to buffer to write from.
@@ -1452,7 +1542,7 @@ clear_continuous:
 ; * r10 is terminal port address.
 read_character:
 .wait_loop:
-    wait r3                   ; * Wait for a bump. r3 should be checked but
+    wait r8                   ; * Wait for a bump. r3 should be checked but
                               ;   as in this demo there's no other peripheral,
                               ;   it's fine this way.
     js .wait_loop
@@ -1578,8 +1668,7 @@ colon_link:
 colon:
         call docol
         dw create, latest, fetch
-        dw hidden
-        dw rbrac, exit
+        dw hidden, rbrac, exit
 
         ;; IMMEDIATE
 semicolon_link:
@@ -1588,8 +1677,7 @@ semicolon_link:
 semicolon:
         call docol
         dw lit, exit, comma
-        dw latest, fetch
-        dw hidden
+        dw latest, fetch, hidden
         dw lbrac, exit
 
         ;; IMMEDIATE
@@ -1683,19 +1771,25 @@ do:
         dw here, tick, to_r, comma, tick, to_r, comma, exit
 
         ;; IMMEDIATE
-loop_link:
+do_loop_link:
         dw do_link
         dw 132, "loo"
-loop:
+do_loop:
         call docol
         dw tick, from_r, comma, tick, from_r, comma, tick, one_plus
         dw comma, tick, two_dup, comma
         dw tick, equal, comma, tick, zbranch, comma, here, minus
         dw comma, tick, two_drop, comma, exit
 
+leave_link:
+        dw do_loop_link
+        dw 5, "lea"
+leave:
+        dw from_r, rdrop, drop, to_r
+        dw exit
         ;; IMMEDIATE
 plus_loop_link:
-        dw loop_link
+        dw leave_link
         dw 133, "+lo"
 plus_loop:
         call docol
@@ -1717,7 +1811,11 @@ state:
         jmp next
 
 var_here:
+        dw here_start
+
+var_here_end:
         dw 0
+
 var_state:
         dw 0
         ;; Latest word to be defined
@@ -1726,15 +1824,23 @@ var_latest:
         ;; Length of latest input
 input_len:
         dw 0
+        
 input_ptr:
         dw str_buffer
+
+rebooted:
+        dw 0
+
+        ;; Our "stack zero" to protect against underflow.
+stack_zero_prog:
+        dw 0
+
+stack_zero:
+        dw 0
+        
         ;; Global string buffer.
         ;; 256 characters.
 str_buffer:
-        ;; dw ": prime?  here + c@ 0 = ; page "
-        ;; dw ": composite! here + 1 swap c! ; page "
-        ;; dw ": sieve here over erase 2 begin 2dup dup * > while dup prime? if 2dup dup * do i composite! dup +loop then 1+ repeat drop 2 do i prime? if i . then loop ; page "
-        ;; dw "100 sieve "
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -1744,7 +1850,6 @@ str_buffer:
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
-        ;; Overflow
-        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 here_start:
         ;; The rest of the memory is free space.
+        dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
