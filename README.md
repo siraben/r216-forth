@@ -119,4 +119,7 @@ click on the sign to begin using R216 Forth!
 - [x] Add ability to read numbers
   - [x] Relies on multiplication routine
 - [x] Add string words `."`, `s"`
-- [ ] Add exceptions, `catch`, `throw`
+- [x] Add exceptions, `catch`, `throw`
+- [ ] Add `?do`, fix `leave`
+  - [ ] Requires rewriting implementation of `do`, `loop` and `+loop`
+  

@@ -20,10 +20,6 @@
 ;;; 2-4: first three characters of name
 ;;; 5 onwards: data
 
-
-;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; This program demonstrates a bug with r3 and reset.
-;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
         
 start:
         ;; Check if this is a reboot.
@@ -171,8 +167,8 @@ done_msg:
 interpret_done:
         dw here, lit, var_here, store
         dw lit, done_msg, puts
-        dw lit, str_buffer, lit, 128, erase
-        dw key, drop, jump, main 
+        ;; dw lit, str_buffer, lit, 128, erase
+        dw key, drop, main_asm 
 sz_link:
         dw 0
         dw 2, "s0 "
@@ -189,8 +185,16 @@ sp_fetch:
         mov r0, sp
         jmp next
 
-depth_link:
+sp_store_link:
         dw sp_fetch_link
+        dw 3, "sp!"
+sp_store:
+        mov sp, r0
+        pop r0
+        jmp next
+        
+depth_link:
+        dw sp_store_link
         dw 5, "dep"
 depth:
         call docol
@@ -397,7 +401,7 @@ unused_link:
         dw 6, "unu"
 unused:
         push r0
-        mov r4, here_start
+        mov r4, r3
         mov r0, [var_here_end]
         sub r0, r4
         jmp next
@@ -504,25 +508,41 @@ to_r:
         pop r0
         jmp next
 
-from_r_link:
+r_from_link:
         dw to_r_link
         dw 2, "r> "
-from_r:
+r_from:
         push r0
         mov r0, [r2]
         add r2, 1
         jmp next
 
+rp_store_link:
+        dw r_from_link
+        dw 3, "rp!"
+rp_store:
+        mov r2, r0
+        pop r0
+        jmp next
+
 r_fetch_link:
-        dw from_r_link
+        dw rp_store_link
         dw 2, "r@ "
 r_fetch:
         push r0
         mov r0, [r2]
         jmp next
+        
+rp_fetch_link:
+        dw r_fetch_link
+        dw 3, "rp@"
+rp_fetch:
+        push r0
+        mov r0, r2
+        jmp next
 
 div_mod_link:
-        dw r_fetch_link
+        dw rp_fetch_link
         dw 4, "/mo"
 div_mod:
         pop r4
@@ -943,7 +963,6 @@ rdrop_link:
         dw drop_link
         dw 5, "rdr"
 rdrop:
-        mov r4, [r2]
         add r2, 1
         jmp next
         
@@ -1129,8 +1148,6 @@ zbranch_succ:
         mov r4, [r1]
         add r1, r4
         jmp next
-
-
 
 jump:
         mov r4, [r1]
@@ -1427,8 +1444,34 @@ recurse:
         call docol
         dw latest, fetch, to_cfa, comma, exit
 
-puts_link:
+
+var_handler:
+        dw 0
+handler:
+        push r0
+        mov r0, var_handler
+        jmp next
+        
+catch_link:
         dw recurse_link
+        dw 5, "cat"
+catch:
+        call docol
+        dw sp_fetch, to_r, handler, fetch, to_r, rp_fetch
+        dw handler, store, execute, r_from, handler, store
+        dw r_from, drop, lit, 0, exit
+        
+throw_link:
+        dw catch_link
+        dw 5, "thr"
+throw:
+        call docol
+        dw qdup, zbranch, 13, handler, fetch, rp_store, r_from
+        dw handler, store, r_from, swap, to_r, sp_store, drop
+        dw r_from, exit
+        
+puts_link:
+        dw throw_link
         dw 4, "put"
 puts:
         call write_string
@@ -1642,6 +1685,8 @@ read_string:
         send r10, 0x20            ; * Clear the previous position of the cursor.
         mov [r0+r1], 0            ; * Terminate string explicitly.
         mov [input_len], r1
+        add r1, 1        
+        mov [r0+r1], 0            ; * Terminate string explicitly (again for WORD)
         ret
 
         ;; Same code as LIT
@@ -1776,7 +1821,7 @@ do_loop_link:
         dw 132, "loo"
 do_loop:
         call docol
-        dw tick, from_r, comma, tick, from_r, comma, tick, one_plus
+        dw tick, r_from, comma, tick, r_from, comma, tick, one_plus
         dw comma, tick, two_dup, comma
         dw tick, equal, comma, tick, zbranch, comma, here, minus
         dw comma, tick, two_drop, comma, exit
@@ -1785,7 +1830,8 @@ leave_link:
         dw do_loop_link
         dw 5, "lea"
 leave:
-        dw from_r, rdrop, drop, to_r
+        call docol
+        dw r_from, rdrop, drop, to_r
         dw exit
         ;; IMMEDIATE
 plus_loop_link:
@@ -1793,7 +1839,7 @@ plus_loop_link:
         dw 133, "+lo"
 plus_loop:
         call docol
-        dw tick, from_r, comma, tick, from_r, comma, tick, rot
+        dw tick, r_from, comma, tick, r_from, comma, tick, rot
         dw comma, tick, plus, comma, tick, two_dup, comma, tick
         dw equal, comma, tick, zbranch, comma, here, minus
         dw comma, tick, two_drop, comma, exit
@@ -1839,7 +1885,7 @@ stack_zero:
         dw 0
         
         ;; Global string buffer.
-        ;; 256 characters.
+        ;; 64 characters.
 str_buffer:
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -1849,6 +1895,7 @@ str_buffer:
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
         dw 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
 
 here_start:
         ;; The rest of the memory is free space.
