@@ -20,7 +20,7 @@
 ;;; 2-4: first three characters of name
 ;;; 5 onwards: data
 
-        
+
 start:
         ;; Check if this is a reboot.
         cmp [rebooted], 0
@@ -32,7 +32,7 @@ didnt_reboot:
         mov [var_here], r3
         jmp main_asm
 did_reboot:
-        
+
         jmp main_asm
 main_asm:
         mov [var_state], 0
@@ -45,7 +45,7 @@ main_asm:
         mov [0x07FF], r0
 
         mov r0, 0xFFFF
-                
+
         ;; Regardless of whether or not we rebooted, we do the
         ;; following.
         ;; Set up stack pointer (adjusts automatically to memory space)
@@ -53,7 +53,7 @@ main_asm:
         mov [stack_zero_prog], sp
         ;; User stack zero
         push 0
-        
+
         mov [stack_zero], sp
         ;; Allocate 64 stack items before placing return stack.
         mov r2, sp
@@ -76,7 +76,7 @@ main_asm:
 
         mov r1, main
         jmp next
-        
+
 main:
         dw lit, rebooted, fetch
         dw lit, 1, lit, rebooted, store
@@ -163,15 +163,17 @@ exit:
 
 done_msg:
         dw 0x200F, " ok", 0
-        
+
 interpret_done:
         dw here, lit, var_here, store
         dw lit, done_msg, puts
         ;; dw lit, str_buffer, lit, 128, erase
-        dw key, drop, main_asm 
+        dw key, drop, main_asm
+
 sz_link:
         dw 0
         dw 2, "s0 "
+        ;; CODE
 sz:
         push r0
         mov r0, [stack_zero]
@@ -192,7 +194,7 @@ sp_store:
         mov sp, r0
         pop r0
         jmp next
-        
+
 depth_link:
         dw sp_store_link
         dw 5, "dep"
@@ -238,14 +240,14 @@ welcome_msg:
 
 bytes_free_msg:
         dw 0x200E, "cells left", 0
-        
+
         ;; Word to be run on boot
 welcome_proc:
         call docol
         dw lit, welcome_msg, puts
         dw lit, 0x1010, term_send
         dw lit, 0x200A, term_send
-        
+
         dw unused, d_dot, lit, bytes_free_msg, puts
         dw exit
 
@@ -384,32 +386,30 @@ find_loop:
         jz false
         jmp find_restart
 
-
-        ;; CODE
 allot_link:
         dw find_link
         dw 5, "all"
+        ;; CODE
 allot:
         add r3, r0
         pop r0
         jmp next
 
-
-        ;; CODE
 unused_link:
         dw allot_link
         dw 6, "unu"
+        ;; CODE
 unused:
         push r0
         mov r4, r3
         mov r0, [var_here_end]
         sub r0, r4
         jmp next
-        
-        ;; CODE
+
 here_link:
         dw unused_link
         dw 4, "her"
+        ;; CODE
 here:
         push r0
         mov r0, r3
@@ -532,7 +532,7 @@ r_fetch:
         push r0
         mov r0, [r2]
         jmp next
-        
+
 rp_fetch_link:
         dw r_fetch_link
         dw 3, "rp@"
@@ -674,6 +674,7 @@ create_asm:
 create_link:
         dw space_link
         dw 6, "cre"
+        ;; CODE
 create:
         call docol
         dw word
@@ -684,13 +685,14 @@ create:
 immed_link:
         dw create_link
         dw 5, "imm"
+        ;; CODE
 immed:
         mov r4, r0
         mov r5, 128
         xor [r4+1], r5
         pop r0
         jmp next
-        
+
         mov r4, 128
         ands [r0], r4
         jnz true
@@ -699,6 +701,7 @@ immed:
 qimmed_link:
         dw immed_link
         dw 6, "?im"
+        ;; CODE
 qimmed:
         mov r0, [r0+1]
         ands r0, 128
@@ -708,6 +711,7 @@ qimmed:
 hidden_link:
         dw qimmed_link
         dw 6, "hid"
+        ;; CODE
 hidden:
         mov r4, r0
         mov r5, 64
@@ -718,16 +722,17 @@ hidden:
 qhidden_link:
         dw hidden_link
         dw 7, "?hi"
+        ;; CODE
 qhidden:
         mov r0, [r0+1]
         ands r0, 64
         jnz true
         jz false
 
-        ;; IMMEDIATE
 lbrac_link:
         dw qhidden_link
         dw 129, "[  "
+        ;; IMMEDIATE CODE
 lbrac:
         mov [var_state], 0
         jmp next
@@ -735,6 +740,7 @@ lbrac:
 rbrac_link:
         dw lbrac_link
         dw 1, "]  "
+        ;; CODE
 rbrac:
         mov [var_state], 1
         jmp next
@@ -742,20 +748,22 @@ rbrac:
 constant_link:
         dw rbrac_link
         dw 8, "con"
+        ;; CODE
 constant:
         jmp value
 
 value_link:
         dw constant_link
         dw 5, "val"
+        ;; WORD
 value:
         call docol
         dw create, tick, lit, comma, comma, tick, exit, comma, exit
 
-        ;; IMMEDIATE
 to_link:
         dw value_link
         dw 130, "to "
+        ;; IMMEDIATE WORD
 to:
         call docol
         dw word, find, to_dfa, one_plus, state, fetch
@@ -765,6 +773,7 @@ to:
 dot_link:
         dw to_link
         dw 1, ".  "
+        ;; CODE
 dot:
         jmp d_dot
 
@@ -772,6 +781,7 @@ dot:
 d_dot_link:
         dw dot_link
         dw 2, "d. "
+        ;; CODE
 d_dot:
 ;;; Written by LBPHacker
 ;;; unsigned render r4 into zero-terminated bcd
@@ -856,6 +866,7 @@ print_d_dot:
 u_dot_link:
         dw d_dot_link
         dw 2, "u. "
+        ;; WORD
 u_dot:
         call docol
         dw u_dot_, space, exit
@@ -863,6 +874,7 @@ u_dot:
 qdup_link:
         dw u_dot_link
         dw 4, "?du"
+        ;; CODE
 qdup:
         cmp r0, 0
         je next
@@ -880,6 +892,7 @@ false:
 less_than_link:
         dw qdup_link
         dw 1, "<  "
+        ;; CODE
 less_than:
         pop r4
         cmp r4, r0
@@ -889,6 +902,7 @@ less_than:
 greater_than_link:
         dw less_than_link
         dw 1, ">  "
+        ;; CODE
 greater_than:
         pop r4
         cmp r4, r0
@@ -898,6 +912,7 @@ greater_than:
 equal_link:
         dw greater_than_link
         dw 1, "=  "
+        ;; CODE
 equal:
         pop r4
         cmp r4, r0
@@ -907,6 +922,7 @@ equal:
 zero_not_equal_link:
         dw equal_link
         dw 3, "0<>"
+        ;; CODE
 zero_not_equal:
         cmp r0, 0
         jne true
@@ -915,6 +931,7 @@ zero_not_equal:
 zero_equal_link:
         dw zero_not_equal_link
         dw 2, "0= "
+        ;; CODE
 zero_equal:
         cmp r0, 0
         je true
@@ -923,6 +940,7 @@ zero_equal:
 not_equal_link:
         dw zero_equal_link
         dw 2, "<> "
+        ;; CODE
 not_equal:
         pop r4
         cmp r4, r0
@@ -932,14 +950,16 @@ not_equal:
 not_link:
         dw not_equal_link
         dw 3, "not"
+        ;; CODE
 not:
         mov r4, 65535
         xor r0, r4
         jmp next
-        
+
 dup_link:
         dw not_link
         dw 3, "dup"
+        ;; CODE
 dup:
         push r0
         jmp next
@@ -947,6 +967,7 @@ dup:
 two_dup_link:
         dw dup_link
         dw 4, "2du"
+        ;; CODE
 two_dup:
         push r0
         push [sp+1]
@@ -955,6 +976,7 @@ two_dup:
 drop_link:
         dw two_dup_link
         dw 4, "dro"
+        ;; CODE
 drop:
         pop r0
         jmp next
@@ -962,14 +984,15 @@ drop:
 rdrop_link:
         dw drop_link
         dw 5, "rdr"
+        ;; CODE
 rdrop:
         add r2, 1
         jmp next
-        
-        
+
 two_drop_link:
         dw rdrop_link
         dw 5, "2dr"
+        ;; CODE
 two_drop:
         pop r0
         pop r0
@@ -978,6 +1001,7 @@ two_drop:
 swap_link:
         dw two_drop_link
         dw 4, "swa"
+        ;; CODE
 swap:
         pop r5
         push r0
@@ -987,6 +1011,7 @@ swap:
 pick_link:
         dw swap_link
         dw 4, "pic"
+        ;; CODE
 pick:
         mov r0, [sp+r0]
         jmp next
@@ -994,6 +1019,7 @@ pick:
 over_link:
         dw pick_link
         dw 4, "ove"
+        ;; CODE
 over:
         push r0
         mov r0, [sp+1]
@@ -1003,6 +1029,7 @@ over:
 rot_link:
         dw over_link
         dw 3, "rot"
+        ;; CODE
 rot:
         pop r4
         pop r5
@@ -1014,6 +1041,7 @@ rot:
 plus_link:
         dw rot_link
         dw 1, "+  "
+        ;; CODE
 plus:
         pop r4
         add r0, r4
@@ -1022,6 +1050,7 @@ plus:
 minus_link:
         dw plus_link
         dw 1, "-  "
+        ;; CODE
 minus:
         mov r4, r0
         pop r0
@@ -1031,6 +1060,7 @@ minus:
 times_link:
         dw minus_link
         dw 1, "*  "
+        ;; CODE
 times:
 ;;; Written by LBPHacker
 ;;; unsigned multiply r4 by r5
@@ -1106,6 +1136,7 @@ umul1616:
 one_minus_link:
         dw double_times_link
         dw 2, "1- "
+        ;; CODE
 one_minus:
         sub r0, 1
         jmp next
@@ -1113,6 +1144,7 @@ one_minus:
 one_plus_link:
         dw one_minus_link
         dw 2, "1+ "
+        ;; CODE
 one_plus:
         add r0, 1
         jmp next
@@ -1120,6 +1152,7 @@ one_plus:
 two_minus_link:
         dw one_plus_link
         dw 2, "2- "
+        ;; CODE
 two_minus:
         sub r0, 2
         jmp next
@@ -1127,6 +1160,7 @@ two_minus:
 two_plus_link:
         dw two_minus_link
         dw 2, "2+ "
+        ;; CODE
 two_plus:
         add r0, 2
         jmp next
@@ -1207,11 +1241,12 @@ getc_asm:
 key_link:
         dw two_plus_link
         dw 3, "key"
+        ;; CODE
 key:
         push r0
         call read_character
         jmp next
-        
+
 ;;; 1 is success, 0 is failure
 num_status:
         dw 0
@@ -1219,6 +1254,7 @@ num_status:
 number_link:
         dw key_link
         dw 6, "num"
+        ;; CODE
 number:
 ;;; Written by LBPHacker
 ;;; unsigned parse zero-terminated bcd pointed to by r4 into r5
@@ -1264,6 +1300,7 @@ fromzstringu16:
 max_link:
         dw number_link
         dw 3, "max"
+        ;; CODE
 max:
         pop r4
         cmp r4, r0
@@ -1274,6 +1311,7 @@ max:
 min_link:
         dw max_link
         dw 3, "min"
+        ;; CODE
 min:
         pop r4
         cmp r4, r0
@@ -1287,6 +1325,7 @@ word_buffer:
 word_link:
         dw min_link
         dw 4, "wor"
+        ;; LINK
 word:
         ;; r6: word pointer
         ;; r4: character point
@@ -1347,6 +1386,7 @@ empty_word:
 divmod_link:
         dw word_link
         dw 4, "/mo"
+        ;; CODE
 divmod:
         pop r5
         mov r6, 0
@@ -1357,6 +1397,7 @@ divmod:
 origin_link:
         dw divmod_link
         dw 6, "ori"
+        ;; CODE
 origin:
         send r10, 0x1000
         jmp next
@@ -1364,6 +1405,7 @@ origin:
 page_link:
         dw origin_link
         dw 4, "pag"
+        ;; CODE
 page:
         send r10, 0x1000
         mov r4, 192
@@ -1380,6 +1422,7 @@ page_loop:
 emit_link:
         dw page_link
         dw 4, "emi"
+        ;; CODE
 emit:
         send r10, r0
         pop r0
@@ -1400,6 +1443,7 @@ not_found_msg:
 to_dfa_link:
         dw emit_link
         dw 4, ">df"
+        ;; CODE
 to_dfa:
         add r0, 6
         jmp next
@@ -1407,6 +1451,7 @@ to_dfa:
 to_cfa_link:
         dw to_dfa_link
         dw 4, ">cf"
+        ;; CODE
 to_cfa:
         add r0, 5
         jmp next
@@ -1414,6 +1459,7 @@ to_cfa:
 erase_link:
         dw to_cfa_link
         dw 5, "era"
+        ;; CODE
 erase:
         pop r4
 erase_loop:
@@ -1431,15 +1477,16 @@ erase_done:
 execute_link:
         dw erase_link
         dw 7, "exe"
+        ;; CODE
 execute:
         mov r4, r0
         pop r0
         jmp r4
 
-        ;; IMMEDIATE
 recurse_link:
         dw execute_link
         dw 135, "rec"
+        ;; IMMEDIATE WORD
 recurse:
         call docol
         dw latest, fetch, to_cfa, comma, exit
@@ -1451,28 +1498,31 @@ handler:
         push r0
         mov r0, var_handler
         jmp next
-        
+
 catch_link:
         dw recurse_link
         dw 5, "cat"
+        ;; WORD
 catch:
         call docol
         dw sp_fetch, to_r, handler, fetch, to_r, rp_fetch
         dw handler, store, execute, r_from, handler, store
         dw r_from, drop, lit, 0, exit
-        
+
 throw_link:
         dw catch_link
         dw 5, "thr"
+        ;; WORD
 throw:
         call docol
         dw qdup, zbranch, 13, handler, fetch, rp_store, r_from
         dw handler, store, r_from, swap, to_r, sp_store, drop
         dw r_from, exit
-        
+
 puts_link:
         dw throw_link
         dw 4, "put"
+        ;; CODE
 puts:
         call write_string
         pop r0
@@ -1482,6 +1532,7 @@ puts:
 id_dot_link:
         dw puts_link
         dw 3, "id."
+        ;; CODE
 id_dot:
         add r0, 2
         send r10, [r0]
@@ -1489,9 +1540,11 @@ id_dot:
         send r10, [r0+2]
         pop r0
         jmp next
+
 lit_link:
         dw id_dot_link
         dw 3, "lit"
+        ;; CODE
 lit:
         push r0
         mov r0, [r1]
@@ -1513,6 +1566,7 @@ litstring:
 tell_link:
         dw lit_link
         dw 4, "tel"
+        ;; CODE
 tell:
         pop r0
         call write_string
@@ -1521,6 +1575,7 @@ tell:
 s_quote_link:
         dw tell_link
         dw 130, "s", 34, " "
+        ;; IMMEDIATE WORD
 s_quote:
         call docol
         dw state, fetch, zbranch, 33, tick, litstring, comma, here
@@ -1531,10 +1586,10 @@ s_quote:
         dw store, one_plus, branch, 65525
         dw drop, here, minus, here, swap, exit
 
-        ;; IMMEDIATE
 dot_quote_link:
         dw s_quote_link
         dw 130, ".", 34, " "
+        ;; IMMEDIATE WORD
 dot_quote:
         call docol
         dw state, fetch, zbranch, 7, s_quote, tick, tell, comma, branch, 13
@@ -1544,6 +1599,7 @@ dot_quote:
 halt_link:
         dw dot_quote_link
         dw 4, "hal"
+        ;; CODE
 halt:
         hlt
         jmp start
@@ -1685,7 +1741,7 @@ read_string:
         send r10, 0x20            ; * Clear the previous position of the cursor.
         mov [r0+r1], 0            ; * Terminate string explicitly.
         mov [input_len], r1
-        add r1, 1        
+        add r1, 1
         mov [r0+r1], 0            ; * Terminate string explicitly (again for WORD)
         ret
 
@@ -1694,6 +1750,7 @@ read_string:
 tick_link:
         dw halt_link
         dw 3, "(')"
+        ;; CODE
 tick:
         push r0
         mov r0, [r1]
@@ -1703,6 +1760,7 @@ tick:
 run_tick_link:
         dw tick_link
         dw 1, "'  "
+        ;; WORD
 run_tick:
         call docol
         dw word, find, to_cfa, exit
@@ -1710,74 +1768,74 @@ run_tick:
 colon_link:
         dw run_tick_link
         dw 1, ":  "
+        ;; WORD
 colon:
         call docol
         dw create, latest, fetch
         dw hidden, rbrac, exit
 
-        ;; IMMEDIATE
 semicolon_link:
         dw colon_link
         dw 129, ";  "
+        ;; IMMEDIATE WORD
 semicolon:
         call docol
         dw lit, exit, comma
         dw latest, fetch, hidden
         dw lbrac, exit
 
-        ;; IMMEDIATE
 if_link:
         dw semicolon_link
         dw 130, "if "
+        ;; IMMEDIATE WORD
 if:
         call docol
         dw tick, zbranch, comma, here, lit, 0, comma, exit
 
-        ;; IMMEDIATE
 else_link:
         dw if_link
         dw 132, "els"
+        ;; IMMEDIATE WORD
 else:
         call docol
         dw tick, branch, comma, here, lit, 0, comma
         dw swap, dup, here, swap, minus, swap, store, exit
 
-        ;; IMMEDIATE
 then_link:
         dw else_link
         dw 132, "the"
-
+        ;; IMMEDIATE WORD
 then:
         call docol
         dw dup, here, swap, minus, swap, store, exit
 
-        ;; IMMEDIATE
 begin_link:
         dw then_link
         dw 133, "beg"
+        ;; IMMEDIATE WORD
 begin:
         jmp here
 
-        ;; IMMEDIATE
 until_link:
         dw begin_link
         dw 133, "unt"
+        ;; IMMEDIATE WORD
 until:
         call docol
         dw tick, zbranch, comma, here, minus, comma, exit
 
-        ;; IMMEDIATE
 again_link:
         dw until_link
         dw 133, "aga"
+        ;; IMMEDIATE WORD
 again:
         call docol
         dw tick, branch, comma, here, minus, comma, exit
 
-        ;; IMMEDIATE
 while_link:
         dw again_link
         dw 133, "whi"
+        ;; IMMEDIATE WORD
 while:
         call docol
         dw tick, zbranch, comma, here, lit, 0, comma, exit
@@ -1785,6 +1843,7 @@ while:
 loop_index_two_link:
         dw while_link
         dw 1, "j  "
+        ;; CODE
 loop_index_loop:
         push r0
         mov r0, [r2+3]
@@ -1793,32 +1852,33 @@ loop_index_loop:
 loop_index_link:
         dw loop_index_two_link
         dw 1, "i  "
+        ;; CODE
 loop_index:
         push r0
         mov r0, [r2+1]
         jmp next
 
-        ;; IMMEDIATE
 repeat_link:
         dw loop_index_link
         dw 134, "rep"
+        ;; IMMEDIATE WORD
 repeat:
         call docol
         dw tick, branch, comma, swap, here, minus, comma
         dw dup, here, swap, minus, swap, store, exit
 
-        ;; IMMEDIATE
 do_link:
         dw repeat_link
         dw 130, "do "
+        ;; IMMEDIATE WORD
 do:
         call docol
         dw here, tick, to_r, comma, tick, to_r, comma, exit
 
-        ;; IMMEDIATE
 do_loop_link:
         dw do_link
         dw 132, "loo"
+        ;; IMMEDIATE WORD
 do_loop:
         call docol
         dw tick, r_from, comma, tick, r_from, comma, tick, one_plus
@@ -1829,14 +1889,16 @@ do_loop:
 leave_link:
         dw do_loop_link
         dw 5, "lea"
+        ;; WORD
 leave:
         call docol
         dw r_from, rdrop, drop, to_r
         dw exit
-        ;; IMMEDIATE
+
 plus_loop_link:
         dw leave_link
         dw 133, "+lo"
+        ;; IMMEDIATE WORD
 plus_loop:
         call docol
         dw tick, r_from, comma, tick, r_from, comma, tick, rot
@@ -1847,6 +1909,7 @@ plus_loop:
 star_link:
         dw plus_loop_link
         dw 4, "sta"
+        ;; WORD
 star:
         call docol
         dw lit, 42, emit, exit
@@ -1870,7 +1933,7 @@ var_latest:
         ;; Length of latest input
 input_len:
         dw 0
-        
+
 input_ptr:
         dw str_buffer
 
@@ -1883,7 +1946,7 @@ stack_zero_prog:
 
 stack_zero:
         dw 0
-        
+
         ;; Global string buffer.
         ;; 64 characters.
 str_buffer:
