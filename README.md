@@ -4,7 +4,7 @@
 
 ## What?
 This project aims to implement the Forth programming language on the
-[R216 computer by LBPHacker](https://lbphacker.pw/powdertoy/R216/manual.md).  The
+[R216 computer by LBPHacker](https://trigraph.net/powdertoy/R216/manual.md).  The
 computer is implemented completely in the video game [Powder
 Toy](https://powdertoy.co.uk/), so this Forth will be one of the few
 systems out there that target a fictional computer.  Since Forth is
